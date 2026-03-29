@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  Calendar, Clock, CheckCircle2, XCircle, Dumbbell,
-  TrendingUp, ChevronRight, Filter
+  Calendar, Clock, CheckCircle2, XCircle,
+  TrendingUp, ChevronRight
 } from 'lucide-react';
 import api from '../services/api';
 import type { WorkoutSession } from '../types';
@@ -45,7 +45,7 @@ export default function HistoryPage() {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="w-10 h-10 rounded-full border-2 animate-spin"
-          style={{ borderColor: '#6366f1', borderTopColor: 'transparent' }} />
+          style={{ borderColor: '#ff8a1f', borderTopColor: 'transparent' }} />
       </div>
     );
   }
@@ -62,7 +62,7 @@ export default function HistoryPage() {
         <div className="grid grid-cols-3 gap-3 mb-5">
           {[
             { label: 'Concluídos', value: completed.length, color: '#10b981' },
-            { label: 'Tempo Total', value: formatDuration(totalTime), color: '#6366f1' },
+            { label: 'Tempo Total', value: formatDuration(totalTime), color: '#ff8a1f' },
             { label: 'Taxa Média', value: `${avgCompletion}%`, color: '#f59e0b' },
           ].map(({ label, value, color }) => (
             <div key={label} className="rounded-2xl p-3 text-center"
@@ -85,9 +85,9 @@ export default function HistoryPage() {
             onClick={() => setFilter(key as typeof filter)}
             className="px-3 py-1.5 rounded-xl text-xs font-bold transition-all"
             style={{
-              background: filter === key ? 'rgba(99,102,241,0.2)' : '#1a1a2e',
-              border: `1px solid ${filter === key ? '#6366f1' : '#2a2a4a'}`,
-              color: filter === key ? '#6366f1' : '#94a3b8',
+              background: filter === key ? 'rgba(255,138,31,0.2)' : '#1a1a2e',
+              border: `1px solid ${filter === key ? '#ff8a1f' : '#2a2a4a'}`,
+              color: filter === key ? '#ff8a1f' : '#94a3b8',
             }}>
             {label}
           </button>
@@ -130,7 +130,7 @@ export default function HistoryPage() {
 
               <div className="flex items-center gap-4">
                 <div className="flex items-center gap-1.5">
-                  <Clock size={13} style={{ color: '#6366f1' }} />
+                  <Clock size={13} style={{ color: '#ff8a1f' }} />
                   <span className="text-xs" style={{ color: '#94a3b8' }}>
                     {formatDuration(session.total_duration_seconds)}
                   </span>

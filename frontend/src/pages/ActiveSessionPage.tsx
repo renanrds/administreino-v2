@@ -1,8 +1,8 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   CheckCircle2, Circle, ChevronDown, ChevronUp, Timer,
-  Flame, X, Trophy, Zap, Weight, RotateCcw, Play, Pause,
+  Flame, X, Trophy, Zap, Play, Pause, XCircle, Plus,
   ArrowLeft, Loader2
 } from 'lucide-react';
 import api from '../services/api';
@@ -42,7 +42,7 @@ function RestTimer({ seconds, onDone }: { seconds: number; onDone: () => void })
           <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
             <circle cx="50" cy="50" r="44" fill="none" stroke="#2a2a4a" strokeWidth="8" />
             <circle cx="50" cy="50" r="44" fill="none"
-              stroke={remaining <= 5 ? '#ef4444' : '#6366f1'}
+              stroke={remaining <= 5 ? '#ef4444' : '#ff8a1f'}
               strokeWidth="8"
               strokeLinecap="round"
               strokeDasharray={`${2 * Math.PI * 44}`}
@@ -64,7 +64,7 @@ function RestTimer({ seconds, onDone }: { seconds: number; onDone: () => void })
           </button>
           <button onClick={onDone}
             className="px-6 py-3 rounded-xl font-bold text-white"
-            style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)' }}>
+            style={{ background: 'linear-gradient(135deg, #ff8a1f, #ff5a00)' }}>
             Pular
           </button>
         </div>
@@ -107,7 +107,7 @@ function CompletionScreen({ session, onClose }: { session: WorkoutSession; onClo
 
         <button onClick={onClose}
           className="w-full py-4 rounded-2xl font-bold text-white"
-          style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)' }}>
+          style={{ background: 'linear-gradient(135deg, #ff8a1f, #ff5a00)' }}>
           Voltar ao Início
         </button>
       </div>
@@ -137,17 +137,38 @@ export default function ActiveSessionPage() {
   const [restTimer, setRestTimer] = useState<{ seconds: number } | null>(null);
   const [completing, setCompleting] = useState(false);
   const [showCompletion, setShowCompletion] = useState(false);
+  const [showFinishModal, setShowFinishModal] = useState(false);
+  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [focusedWeight, setFocusedWeight] = useState<string>('');
 
-  // Cronômetro total
+  // Cronômetro total baseado na hora de início real
   useEffect(() => {
-    const interval = setInterval(() => setElapsedSeconds((s) => s + 1), 1000);
+    if (!session?.started_at) return;
+    
+    const startTime = new Date(session.started_at).getTime();
+    
+    const updateTimer = () => {
+      const now = Date.now();
+      const diffInSeconds = Math.floor((now - startTime) / 1000);
+      setElapsedSeconds(diffInSeconds > 0 ? diffInSeconds : 0);
+    };
+
+    updateTimer(); // Atualiza imediatamente ao carregar
+    const interval = setInterval(updateTimer, 1000);
+    
     return () => clearInterval(interval);
-  }, []);
+  }, [session?.started_at]);
 
   const formatElapsed = () => {
-    const m = Math.floor(elapsedSeconds / 60);
+    const h = Math.floor(elapsedSeconds / 3600);
+    const m = Math.floor((elapsedSeconds % 3600) / 60);
     const s = elapsedSeconds % 60;
+    
+    if (h > 0) {
+      return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    }
     return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
   };
 
@@ -209,11 +230,37 @@ export default function ActiveSessionPage() {
   };
 
   const updateSet = (exerciseId: number, setNumber: number, field: 'reps' | 'weight', value: string) => {
-    setSets((prev) => prev.map((s) =>
-      s.exerciseId === exerciseId && s.setNumber === setNumber
-        ? { ...s, [field]: field === 'reps' ? parseInt(value) || 0 : value }
-        : s
-    ));
+    setSets((prev) => {
+      const updated = prev.map((s) =>
+        s.exerciseId === exerciseId && s.setNumber === setNumber
+          ? { ...s, [field]: field === 'reps' ? parseInt(value) || 0 : value }
+          : s
+      );
+
+      // Se atualizando peso, preenche a próxima série também
+      if (field === 'weight' && value) {
+        const nextSetIdx = updated.findIndex(
+          (s) => s.exerciseId === exerciseId && s.setNumber === setNumber + 1
+        );
+
+        if (nextSetIdx !== -1 && !updated[nextSetIdx].weight) {
+          updated[nextSetIdx].weight = value;
+        }
+      }
+
+      return updated;
+    });
+  };
+
+  const addWeightToSet = (exerciseId: number, setNumber: number, weightToAdd: number) => {
+    setSets((prev) => prev.map((s) => {
+      if (s.exerciseId === exerciseId && s.setNumber === setNumber) {
+        const currentWeight = s.weight ? parseFloat(s.weight) : 0;
+        const newWeight = currentWeight + weightToAdd;
+        return { ...s, weight: newWeight.toString() };
+      }
+      return s;
+    }));
   };
 
   const completeSet = async (exerciseId: number, setNumber: number) => {
@@ -262,8 +309,32 @@ export default function ActiveSessionPage() {
     }
   };
 
-  const handleFinish = async () => {
-    if (!confirm('Finalizar treino agora?')) return;
+  const uncompleteSet = async (exerciseId: number, setNumber: number) => {
+    const setData = sets.find((s) => s.exerciseId === exerciseId && s.setNumber === setNumber);
+    if (!setData || !setData.logId) return;
+
+    try {
+      await api.delete(`/logs/${setData.logId}/`);
+
+      setSets((prev) => prev.map((s) =>
+        s.exerciseId === exerciseId && s.setNumber === setNumber
+          ? { ...s, completed: false, logId: undefined }
+          : s
+      ));
+
+      // Atualiza sessão
+      const { data: updatedSession } = await api.get(`/sessions/${id}/`);
+      setSession(updatedSession);
+    } catch (err) {
+      console.error('Erro ao descompletar série:', err);
+    }
+  };
+
+  const handleFinish = () => {
+    setShowFinishModal(true);
+  };
+
+  const confirmFinish = async () => {
     setCompleting(true);
     try {
       const { data } = await api.post(`/sessions/${id}/finish/`);
@@ -271,6 +342,20 @@ export default function ActiveSessionPage() {
       setShowCompletion(true);
     } finally {
       setCompleting(false);
+      setShowFinishModal(false);
+    }
+  };
+
+  const confirmCancelSession = async () => {
+    setCancelling(true);
+    try {
+      await api.post(`/sessions/${id}/cancel/`);
+      navigate('/');
+    } catch (err) {
+      console.error('Erro ao cancelar treino:', err);
+    } finally {
+      setCancelling(false);
+      setShowCancelModal(false);
     }
   };
 
@@ -278,7 +363,7 @@ export default function ActiveSessionPage() {
     return (
       <div className="flex items-center justify-center h-screen">
         <div className="w-12 h-12 rounded-full border-2 animate-spin"
-          style={{ borderColor: '#6366f1', borderTopColor: 'transparent' }} />
+          style={{ borderColor: '#ff8a1f', borderTopColor: 'transparent' }} />
       </div>
     );
   }
@@ -293,6 +378,122 @@ export default function ActiveSessionPage() {
     <div className="min-h-screen" style={{ background: '#0f0f1a' }}>
       {restTimer && (
         <RestTimer seconds={restTimer.seconds} onDone={() => setRestTimer(null)} />
+      )}
+
+      {/* Modal de Confirmação de Finalização */}
+      {showFinishModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4"
+          style={{ background: 'rgba(15,15,26,0.97)', backdropFilter: 'blur(20px)' }}>
+          <div className="w-full max-w-sm rounded-3xl p-6 animate-slide-up"
+            style={{ background: '#1a1a2e', border: '1px solid #2a2a4a', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}>
+            {/* Ícone */}
+            <div className="flex justify-center mb-4">
+              <div className="w-16 h-16 rounded-full flex items-center justify-center"
+                style={{ background: 'linear-gradient(135deg, #f59e0b, #d97706)', boxShadow: '0 0 30px rgba(245,158,11,0.3)' }}>
+                <Trophy size={32} className="text-white" />
+              </div>
+            </div>
+
+            {/* Conteúdo */}
+            <h2 className="text-2xl font-black text-white text-center mb-2">Finalizar Treino?</h2>
+            <p className="text-sm text-center mb-6" style={{ color: '#94a3b8' }}>
+              {progressPct < 100
+                ? `Você completou ${progressPct}% do treino. Tem certeza que deseja finalizar?`
+                : 'Parabéns! Você completou todo o treino!'
+              }
+            </p>
+
+            {/* Resumo */}
+            <div className="space-y-2 mb-6">
+              <div className="flex items-center justify-between p-3 rounded-xl"
+                style={{ background: '#0f0f1a', border: '1px solid #2a2a4a' }}>
+                <div className="flex items-center gap-2">
+                  <Timer size={16} style={{ color: '#ff8a1f' }} />
+                  <span className="text-sm" style={{ color: '#94a3b8' }}>Duração</span>
+                </div>
+                <span className="font-bold text-white font-mono">{formatElapsed()}</span>
+              </div>
+              <div className="flex items-center justify-between p-3 rounded-xl"
+                style={{ background: '#0f0f1a', border: '1px solid #2a2a4a' }}>
+                <div className="flex items-center gap-2">
+                  <Flame size={16} style={{ color: '#f59e0b' }} />
+                  <span className="text-sm" style={{ color: '#94a3b8' }}>Progresso</span>
+                </div>
+                <span className="font-bold text-white">{completedSets}/{totalSets} séries</span>
+              </div>
+            </div>
+
+            {/* Botões */}
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowFinishModal(false)}
+                disabled={completing}
+                className="flex-1 py-3 rounded-xl font-bold transition-all active:scale-95"
+                style={{
+                  background: '#2a2a4a',
+                  color: '#94a3b8',
+                  border: '1px solid #3a3a5a'
+                }}>
+                Continuar Treino
+              </button>
+              <button
+                onClick={confirmFinish}
+                disabled={completing}
+                className="flex-1 py-3 rounded-xl font-bold text-white flex items-center justify-center gap-2 active:scale-95 transition-all"
+                style={{
+                  background: progressPct < 100
+                    ? 'linear-gradient(135deg, #f59e0b, #d97706)'
+                    : 'linear-gradient(135deg, #10b981, #059669)'
+                }}>
+                {completing ? <Loader2 size={18} className="animate-spin" /> : <Trophy size={18} />}
+                {completing ? 'Finalizando...' : 'Finalizar Agora'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal de confirmação de cancelamento */}
+      {showCancelModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4"
+          style={{ background: 'rgba(15,15,26,0.97)', backdropFilter: 'blur(20px)' }}>
+          <div className="w-full max-w-sm rounded-3xl p-6 animate-slide-up"
+            style={{ background: '#1a1a2e', border: '1px solid #2a2a4a', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}>
+            <div className="flex justify-center mb-4">
+              <div className="w-16 h-16 rounded-full flex items-center justify-center"
+                style={{ background: 'linear-gradient(135deg, #ef4444, #dc2626)', boxShadow: '0 0 30px rgba(239,68,68,0.3)' }}>
+                <X size={30} className="text-white" />
+              </div>
+            </div>
+
+            <h2 className="text-2xl font-black text-white text-center mb-2">Cancelar Treino?</h2>
+            <p className="text-sm text-center mb-6" style={{ color: '#94a3b8' }}>
+              Seu progresso atual não será finalizado. Você poderá iniciar um novo treino depois.
+            </p>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => setShowCancelModal(false)}
+                disabled={cancelling}
+                className="flex-1 py-3 rounded-xl font-bold transition-all active:scale-95"
+                style={{
+                  background: '#2a2a4a',
+                  color: '#94a3b8',
+                  border: '1px solid #3a3a5a'
+                }}>
+                Voltar
+              </button>
+              <button
+                onClick={confirmCancelSession}
+                disabled={cancelling}
+                className="flex-1 py-3 rounded-xl font-bold text-white flex items-center justify-center gap-2 active:scale-95 transition-all"
+                style={{ background: 'linear-gradient(135deg, #ef4444, #dc2626)' }}>
+                {cancelling ? <Loader2 size={18} className="animate-spin" /> : <X size={18} />}
+                {cancelling ? 'Cancelando...' : 'Sim, cancelar'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Header fixo */}
@@ -311,7 +512,7 @@ export default function ActiveSessionPage() {
           </div>
           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl"
             style={{ background: '#1a1a2e', border: '1px solid #2a2a4a' }}>
-            <Timer size={14} style={{ color: '#6366f1' }} />
+            <Timer size={14} style={{ color: '#ff8a1f' }} />
             <span className="text-sm font-bold text-white font-mono">{formatElapsed()}</span>
           </div>
         </div>
@@ -326,7 +527,7 @@ export default function ActiveSessionPage() {
               </span>
             </div>
             <span className="text-sm font-black" style={{
-              color: progressPct >= 100 ? '#10b981' : progressPct >= 50 ? '#f59e0b' : '#6366f1'
+              color: progressPct >= 100 ? '#10b981' : progressPct >= 50 ? '#f59e0b' : '#ff8a1f'
             }}>
               {progressPct}%
             </span>
@@ -339,8 +540,8 @@ export default function ActiveSessionPage() {
                   ? 'linear-gradient(90deg, #10b981, #059669)'
                   : progressPct >= 50
                   ? 'linear-gradient(90deg, #f59e0b, #f97316)'
-                  : 'linear-gradient(90deg, #6366f1, #8b5cf6)',
-                boxShadow: `0 0 12px ${progressPct >= 100 ? '#10b981' : '#6366f1'}80`
+                  : 'linear-gradient(90deg, #ff8a1f, #ff5a00)',
+                boxShadow: `0 0 12px ${progressPct >= 100 ? '#10b981' : '#ff8a1f'}80`
               }} />
           </div>
         </div>
@@ -349,8 +550,8 @@ export default function ActiveSessionPage() {
       {/* Motivação */}
       {progressPct > 0 && progressPct < 100 && (
         <div className="mx-4 mt-3 px-4 py-2 rounded-xl flex items-center gap-2"
-          style={{ background: 'rgba(99,102,241,0.1)', border: '1px solid rgba(99,102,241,0.2)' }}>
-          <Zap size={14} style={{ color: '#6366f1' }} />
+          style={{ background: 'rgba(255,138,31,0.1)', border: '1px solid rgba(255,138,31,0.2)' }}>
+          <Zap size={14} style={{ color: '#ff8a1f' }} />
           <p className="text-xs font-semibold" style={{ color: '#a5b4fc' }}>
             {progressPct < 30 ? 'Ótimo começo! Continue assim! 🔥'
               : progressPct < 60 ? 'Você está na metade! Não pare agora! 💪'
@@ -365,7 +566,7 @@ export default function ActiveSessionPage() {
         {exercises.map((ex, exIdx) => {
           const { done, total } = getExerciseProgress(ex.id);
           const isExpanded = expandedEx === ex.id;
-          const exColor = MUSCLE_GROUP_COLORS[ex.muscle_group] || '#6366f1';
+          const exColor = MUSCLE_GROUP_COLORS[ex.muscle_group] || '#ff8a1f';
           const allDone = done === total;
 
           return (
@@ -418,8 +619,20 @@ export default function ActiveSessionPage() {
                     ))}
                   </div>
 
-                  {getExerciseSets(ex.id).map((setData) => (
-                    <div key={setData.setNumber}
+                  {getExerciseSets(ex.id).map((setData) => {
+                // Pesos comuns recomendados
+                const commonWeights = [1, 2, 5, 10].filter(
+                  (w) => !setData.weight || Math.abs(w - parseFloat(setData.weight)) >= 2.5
+                );
+                const recentWeights = getExerciseSets(ex.id)
+                  .filter((s) => s.setNumber < setData.setNumber && s.weight)
+                  .map((s) => parseFloat(s.weight))
+                  .filter((v, i, arr) => arr.indexOf(v) === i)
+                  .slice(-2);
+
+                return (
+                  <div key={setData.setNumber}>
+                    <div
                       className="grid grid-cols-4 gap-2 items-center p-2 rounded-xl transition-all"
                       style={{
                         background: setData.completed ? 'rgba(16,185,129,0.1)' : '#0f0f1a',
@@ -451,25 +664,47 @@ export default function ActiveSessionPage() {
                         }} />
 
                       {/* Peso */}
-                      <input
-                        type="number"
-                        min={0}
-                        step={0.5}
-                        value={setData.weight}
-                        disabled={setData.completed}
-                        onChange={(e) => updateSet(ex.id, setData.setNumber, 'weight', e.target.value)}
-                        placeholder="—"
-                        className="w-full py-2 rounded-lg text-center text-sm font-bold outline-none"
-                        style={{
-                          background: setData.completed ? 'transparent' : '#1a1a2e',
-                          border: `1px solid ${setData.completed ? 'transparent' : '#2a2a4a'}`,
-                          color: setData.completed ? '#10b981' : 'white',
-                        }} />
+                      <div className="relative">
+                        <input
+                          type="number"
+                          min={0}
+                          step={0.5}
+                          value={setData.weight}
+                          disabled={setData.completed}
+                          onChange={(e) => {
+                            updateSet(ex.id, setData.setNumber, 'weight', e.target.value);
+                            setFocusedWeight(`${ex.id}-${setData.setNumber}`);
+                          }}
+                          onFocus={() => setFocusedWeight(`${ex.id}-${setData.setNumber}`)}
+                          onBlur={() => setFocusedWeight('')}
+                          placeholder="—"
+                          className="w-full py-2 pr-6 rounded-lg text-center text-sm font-bold outline-none"
+                          style={{
+                            background: setData.completed ? 'transparent' : '#1a1a2e',
+                            border: `1px solid ${setData.completed ? 'transparent' : '#2a2a4a'}`,
+                            color: setData.completed ? '#10b981' : 'white',
+                          }} />
+                        {setData.weight && !setData.completed && (
+                          <button
+                            onMouseDown={() => updateSet(ex.id, setData.setNumber, 'weight', '')}
+                            className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded hover:opacity-80 transition-opacity"
+                            style={{ color: '#94a3b8' }}
+                            title="Limpar peso">
+                            <XCircle size={16} />
+                          </button>
+                        )}
+                      </div>
 
                       {/* Botão completar */}
                       <div className="flex justify-center">
                         {setData.completed ? (
-                          <CheckCircle2 size={24} style={{ color: '#10b981' }} />
+                          <button
+                            onClick={() => uncompleteSet(ex.id, setData.setNumber)}
+                            className="w-8 h-8 rounded-full flex items-center justify-center active:scale-90 transition-transform hover:opacity-80"
+                            title="Descompletar série"
+                            style={{ background: 'rgba(16,185,129,0.1)', border: '2px solid #10b981' }}>
+                            <CheckCircle2 size={20} style={{ color: '#10b981' }} />
+                          </button>
                         ) : (
                           <button
                             onClick={() => completeSet(ex.id, setData.setNumber)}
@@ -480,7 +715,61 @@ export default function ActiveSessionPage() {
                         )}
                       </div>
                     </div>
-                  ))}
+
+                    {/* Quick-select de pesos */}
+                    {focusedWeight === `${ex.id}-${setData.setNumber}` && !setData.completed && (
+                      <div className="mt-2 px-2 space-y-2" onMouseDown={(e) => e.preventDefault()}>
+                        {/* Pesos recentes */}
+                        {recentWeights.length > 0 && (
+                          <div className="flex gap-2 flex-wrap">
+                            <span className="text-xs font-semibold px-2 py-1" style={{ color: '#94a3b8' }}>
+                              Último:
+                            </span>
+                            {recentWeights.map((w) => (
+                              <button
+                                key={w}
+                                onMouseDown={() => {
+                                  addWeightToSet(ex.id, setData.setNumber, w);
+                                }}
+                                className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all active:scale-95"
+                                style={{
+                                  background: setData.weight === w.toString() ? '#ff8a1f' : '#1a1a2e',
+                                  border: `1px solid ${setData.weight === w.toString() ? '#ff8a1f' : '#2a2a4a'}`,
+                                  color: setData.weight === w.toString() ? 'white' : '#94a3b8',
+                                }}>
+                                +{w}kg
+                              </button>
+                            ))}
+                          </div>
+                        )}
+
+                        {/* Pesos comuns */}
+                        <div className="flex gap-2 flex-wrap">
+                          <div className="w-6 h-6 rounded-full flex items-center justify-center"
+                            style={{ background: 'rgba(16,185,129,0.2)', border: '1.5px solid #10b981' }}>
+                            <Plus size={14} style={{ color: '#10b981' }} />
+                          </div>
+                          {commonWeights.slice(0, 4).map((w) => (
+                            <button
+                              key={w}
+                              onMouseDown={() => {
+                                addWeightToSet(ex.id, setData.setNumber, w);
+                              }}
+                              className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all active:scale-95"
+                              style={{
+                                background: '#0f0f1a',
+                                border: '1px solid #2a2a4a',
+                                color: '#94a3b8',
+                              }}>
+                              +{w}kg
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
 
                   {/* Info de descanso */}
                   <div className="flex items-center gap-1.5 mt-2 px-1"
@@ -500,11 +789,7 @@ export default function ActiveSessionPage() {
         style={{ background: 'rgba(15,15,26,0.97)', backdropFilter: 'blur(12px)', borderTop: '1px solid #2a2a4a' }}>
         <div className="flex gap-3">
           <button
-            onClick={() => {
-              if (confirm('Cancelar treino?')) {
-                api.post(`/sessions/${id}/cancel/`).then(() => navigate('/'));
-              }
-            }}
+            onClick={() => setShowCancelModal(true)}
             className="p-3 rounded-xl"
             style={{ background: '#1a1a2e', border: '1px solid #2a2a4a', color: '#ef4444' }}>
             <X size={20} />
@@ -513,9 +798,21 @@ export default function ActiveSessionPage() {
             onClick={handleFinish}
             disabled={completing}
             className="flex-1 py-3 rounded-xl font-bold text-white flex items-center justify-center gap-2 active:scale-95 transition-transform"
-            style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}>
+            style={{
+              background: progressPct < 30
+                ? 'linear-gradient(135deg, #f59e0b, #d97706)'
+                : progressPct < 60
+                ? 'linear-gradient(135deg, #f97316, #ea580c)'
+                : progressPct < 90
+                ? 'linear-gradient(135deg, #ff8a1f, #ff5a00)'
+                : 'linear-gradient(135deg, #10b981, #059669)'
+            }}>
             {completing ? <Loader2 size={20} className="animate-spin" /> : <Trophy size={20} />}
-            {completing ? 'Finalizando...' : 'Finalizar Treino'}
+            {completing ? 'Finalizando...'
+              : progressPct < 30 ? `Finalizar (${progressPct}% completo)`
+              : progressPct < 60 ? `Na metade! ${progressPct}%`
+              : progressPct < 90 ? `Quase! ${progressPct}%`
+              : 'Finalizar Treino'}
           </button>
         </div>
       </div>

@@ -1,5 +1,5 @@
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { Dumbbell, LayoutDashboard, ListChecks, History, User, LogOut } from 'lucide-react';
+import { LayoutDashboard, History, User, LogOut, Dumbbell } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 
 const navItems = [
@@ -25,11 +25,11 @@ export default function Layout() {
         style={{ background: 'rgba(26,26,46,0.95)', backdropFilter: 'blur(12px)', borderBottom: '1px solid #2a2a4a' }}>
         <div className="flex items-center gap-2">
           <div className="w-8 h-8 rounded-lg flex items-center justify-center"
-            style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)' }}>
-            <Dumbbell size={18} className="text-white" />
+            style={{ background: 'linear-gradient(135deg, #ff8a1f, #ff5a00)' }}>
+            <img src="/branding/adminstreino-emblem.svg" alt="Administreino" className="w-5 h-5" />
           </div>
           <span className="font-black text-white text-lg">
-            Adminis<span style={{ color: '#6366f1' }}>treino</span>
+            Adminis<span style={{ color: '#ff8a1f' }}>treino</span>
           </span>
         </div>
         <div className="flex items-center gap-3">
@@ -65,8 +65,8 @@ export default function Layout() {
                 }`
               }
               style={({ isActive }) => ({
-                color: isActive ? '#6366f1' : '#94a3b8',
-                background: isActive ? 'rgba(99,102,241,0.15)' : 'transparent',
+                color: isActive ? '#ff8a1f' : '#94a3b8',
+                background: isActive ? 'rgba(255,138,31,0.15)' : 'transparent',
               })}
             >
               <Icon size={22} />

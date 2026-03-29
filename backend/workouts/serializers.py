@@ -40,51 +40,81 @@ class WorkoutCreateSerializer(serializers.ModelSerializer):
 
 
 class ExerciseLogSerializer(serializers.ModelSerializer):
-    exercise_name = serializers.CharField(source='exercise.name', read_only=True)
-    exercise_muscle_group = serializers.CharField(source='exercise.get_muscle_group_display', read_only=True)
+    exercise_name = serializers.SerializerMethodField()
+    exercise_muscle_group = serializers.SerializerMethodField()
+
+    def get_exercise_name(self, obj):
+        if obj.exercise_name_snapshot:
+            return obj.exercise_name_snapshot
+        return obj.exercise.name
+
+    def get_exercise_muscle_group(self, obj):
+        if obj.muscle_group_snapshot:
+            return obj.get_muscle_group_snapshot_display()
+        return obj.exercise.get_muscle_group_display()
 
     class Meta:
         model = ExerciseLog
         fields = [
             'id', 'exercise', 'exercise_name', 'exercise_muscle_group',
-            'set_number', 'reps_done', 'weight_kg', 'rest_seconds_taken',
-            'is_completed', 'notes', 'logged_at'
+            'set_number', 'planned_reps', 'planned_weight_kg', 'planned_rest_seconds',
+            'reps_done', 'weight_kg', 'rest_seconds_taken', 'execution_seconds',
+            'rpe', 'volume_kg', 'is_completed', 'notes', 'logged_at'
         ]
         read_only_fields = ['id', 'logged_at']
 
 
 class WorkoutSessionSerializer(serializers.ModelSerializer):
     exercise_logs = ExerciseLogSerializer(many=True, read_only=True)
-    workout_name = serializers.CharField(source='workout.name', read_only=True)
-    workout_type = serializers.CharField(source='workout.workout_type', read_only=True)
+    workout_name = serializers.SerializerMethodField()
+    workout_type = serializers.SerializerMethodField()
     completion_percentage = serializers.IntegerField(read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
+
+    def get_workout_name(self, obj):
+        return obj.workout_name_snapshot or obj.workout.name
+
+    def get_workout_type(self, obj):
+        return obj.workout_type_snapshot or obj.workout.workout_type
 
     class Meta:
         model = WorkoutSession
         fields = [
             'id', 'workout', 'workout_name', 'workout_type',
             'status', 'status_display', 'started_at', 'finished_at',
-            'total_duration_seconds', 'notes', 'exercise_logs',
+            'total_duration_seconds', 'planned_exercises_count', 'planned_sets_count',
+            'completed_sets_count', 'total_volume_kg', 'average_rpe',
+            'notes', 'exercise_logs',
             'completion_percentage', 'created_at'
         ]
         read_only_fields = ['id', 'started_at', 'created_at', 'completion_percentage']
 
     def create(self, validated_data):
         validated_data['user'] = self.context['request'].user
-        return super().create(validated_data)
+        session = super().create(validated_data)
+        session.capture_workout_snapshot()
+        session.save(update_fields=['workout_name_snapshot', 'workout_type_snapshot', 'planned_exercises_count', 'planned_sets_count'])
+        return session
 
 
 class WorkoutSessionListSerializer(serializers.ModelSerializer):
     """Serializer simplificado para listagem de sessões."""
-    workout_name = serializers.CharField(source='workout.name', read_only=True)
+    workout_name = serializers.SerializerMethodField()
+    workout_type = serializers.SerializerMethodField()
     completion_percentage = serializers.IntegerField(read_only=True)
     status_display = serializers.CharField(source='get_status_display', read_only=True)
+
+    def get_workout_name(self, obj):
+        return obj.workout_name_snapshot or obj.workout.name
+
+    def get_workout_type(self, obj):
+        return obj.workout_type_snapshot or obj.workout.workout_type
 
     class Meta:
         model = WorkoutSession
         fields = [
-            'id', 'workout', 'workout_name', 'status', 'status_display',
+            'id', 'workout', 'workout_name', 'workout_type', 'status', 'status_display',
             'started_at', 'finished_at', 'total_duration_seconds',
+            'planned_sets_count', 'completed_sets_count', 'total_volume_kg',
             'completion_percentage', 'created_at'
         ]

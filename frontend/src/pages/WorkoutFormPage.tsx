@@ -5,11 +5,99 @@ import {
   Dumbbell, Timer, RotateCcw, Weight
 } from 'lucide-react';
 import api from '../services/api';
-import type { Exercise, Workout, MuscleGroup, WorkoutType } from '../types';
+import type { Workout, MuscleGroup, WorkoutType } from '../types';
 import { MUSCLE_GROUP_LABELS, WORKOUT_TYPE_LABELS } from '../types';
 
 const MUSCLE_GROUPS = Object.entries(MUSCLE_GROUP_LABELS) as [MuscleGroup, string][];
 const WORKOUT_TYPES = Object.entries(WORKOUT_TYPE_LABELS) as [WorkoutType, string][];
+
+// Base de dados local para sugerir exercícios e autocompletar o grupo muscular
+const SUGGESTED_EXERCISES: { name: string; muscle: MuscleGroup }[] = [
+  // Peito
+  { name: 'Supino Reto com Barra', muscle: 'chest' },
+  { name: 'Supino Reto com Halteres', muscle: 'chest' },
+  { name: 'Supino Inclinado com Barra', muscle: 'chest' },
+  { name: 'Supino Inclinado com Halteres', muscle: 'chest' },
+  { name: 'Crucifixo Reto', muscle: 'chest' },
+  { name: 'Crucifixo Inclinado', muscle: 'chest' },
+  { name: 'Crossover (Polia)', muscle: 'chest' },
+  { name: 'Voador (Peck Deck)', muscle: 'chest' },
+  { name: 'Flexão de Braço', muscle: 'chest' },
+
+  // Costas
+  { name: 'Puxada Frontal', muscle: 'back' },
+  { name: 'Puxada Atrás', muscle: 'back' },
+  { name: 'Remada Curvada com Barra', muscle: 'back' },
+  { name: 'Remada Baixa (Triângulo)', muscle: 'back' },
+  { name: 'Remada Unilateral (Serrote)', muscle: 'back' },
+  { name: 'Remada Máquina', muscle: 'back' },
+  { name: 'Levantamento Terra', muscle: 'back' },
+  { name: 'Barra Fixa', muscle: 'back' },
+
+  // Ombros
+  { name: 'Desenvolvimento com Halteres', muscle: 'shoulders' },
+  { name: 'Desenvolvimento com Barra', muscle: 'shoulders' },
+  { name: 'Desenvolvimento Máquina', muscle: 'shoulders' },
+  { name: 'Elevação Lateral', muscle: 'shoulders' },
+  { name: 'Elevação Frontal', muscle: 'shoulders' },
+  { name: 'Crucifixo Inverso', muscle: 'shoulders' },
+  { name: 'Encolhimento de Ombros', muscle: 'shoulders' },
+
+  // Bíceps
+  { name: 'Rosca Direta com Barra', muscle: 'biceps' },
+  { name: 'Rosca Alternada', muscle: 'biceps' },
+  { name: 'Rosca Martelo', muscle: 'biceps' },
+  { name: 'Rosca Scott', muscle: 'biceps' },
+  { name: 'Rosca Concentrada', muscle: 'biceps' },
+  { name: 'Rosca na Polia', muscle: 'biceps' },
+
+  // Tríceps
+  { name: 'Tríceps Pulley (Corda)', muscle: 'triceps' },
+  { name: 'Tríceps Pulley (Barra)', muscle: 'triceps' },
+  { name: 'Tríceps Testa', muscle: 'triceps' },
+  { name: 'Tríceps Francês', muscle: 'triceps' },
+  { name: 'Tríceps Banco', muscle: 'triceps' },
+  { name: 'Tríceps Coice', muscle: 'triceps' },
+
+  // Pernas
+  { name: 'Agachamento Livre', muscle: 'legs' },
+  { name: 'Agachamento Smith', muscle: 'legs' },
+  { name: 'Leg Press 45º', muscle: 'legs' },
+  { name: 'Cadeira Extensora', muscle: 'legs' },
+  { name: 'Cadeira Flexora', muscle: 'legs' },
+  { name: 'Mesa Flexora', muscle: 'legs' },
+  { name: 'Stiff', muscle: 'legs' },
+  { name: 'Avanço / Passada', muscle: 'legs' },
+  { name: 'Cadeira Abdutora', muscle: 'legs' },
+  { name: 'Cadeira Adutora', muscle: 'legs' },
+
+  // Glúteos
+  { name: 'Elevação Pélvica', muscle: 'glutes' },
+  { name: 'Glúteo na Polia', muscle: 'glutes' },
+  { name: 'Glúteo 4 Apoios', muscle: 'glutes' },
+
+  // Panturrilha
+  { name: 'Panturrilha em Pé', muscle: 'calves' },
+  { name: 'Panturrilha Sentado (Máquina)', muscle: 'calves' },
+  { name: 'Panturrilha no Leg Press', muscle: 'calves' },
+
+  // Abdômen
+  { name: 'Abdominal Supra (Crunch)', muscle: 'abs' },
+  { name: 'Abdominal Infra', muscle: 'abs' },
+  { name: 'Abdominal Oblíquo', muscle: 'abs' },
+  { name: 'Prancha Isométrica', muscle: 'abs' },
+  { name: 'Abdominal na Máquina', muscle: 'abs' },
+
+  // Antebraço
+  { name: 'Rosca Inversa', muscle: 'forearms' },
+  { name: 'Flexão de Punho', muscle: 'forearms' },
+
+  // Cardio / Outros
+  { name: 'Esteira', muscle: 'cardio' },
+  { name: 'Bicicleta Ergométrica', muscle: 'cardio' },
+  { name: 'Elíptico', muscle: 'cardio' },
+  { name: 'Pular Corda', muscle: 'cardio' }
+];
 
 interface ExerciseForm {
   id?: number;
@@ -39,6 +127,9 @@ export default function WorkoutFormPage() {
   const [exercises, setExercises] = useState<ExerciseForm[]>([defaultExercise()]);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+  
+  // Estado para controlar qual input de exercício está com foco para exibir as sugestões
+  const [focusedExerciseIndex, setFocusedExerciseIndex] = useState<number | null>(null);
 
   useEffect(() => {
     if (isEdit) {
@@ -68,6 +159,29 @@ export default function WorkoutFormPage() {
 
   const updateExercise = (idx: number, field: keyof ExerciseForm, value: any) => {
     setExercises(exercises.map((ex, i) => i === idx ? { ...ex, [field]: value } : ex));
+  };
+
+  // Função dedicada para lidar com a mudança do nome e auto-detectar o grupo muscular
+  const handleNameChange = (idx: number, newName: string) => {
+    const updated = [...exercises];
+    updated[idx].name = newName;
+
+    // Se o que for digitado for idêntico a um da base, preenche o grupo muscular automaticamente
+    const matchedExercise = SUGGESTED_EXERCISES.find(e => e.name.toLowerCase() === newName.toLowerCase().trim());
+    if (matchedExercise) {
+      updated[idx].muscle_group = matchedExercise.muscle;
+    }
+
+    setExercises(updated);
+  };
+
+  // Função para quando o usuário clicar na sugestão do Dropdown
+  const handleSelectSuggestion = (idx: number, suggestion: { name: string, muscle: MuscleGroup }) => {
+    const updated = [...exercises];
+    updated[idx].name = suggestion.name;
+    updated[idx].muscle_group = suggestion.muscle;
+    setExercises(updated);
+    setFocusedExerciseIndex(null); // Fecha o dropdown
   };
 
   const handleSave = async () => {
@@ -107,7 +221,7 @@ export default function WorkoutFormPage() {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="w-10 h-10 rounded-full border-2 animate-spin"
-          style={{ borderColor: '#6366f1', borderTopColor: 'transparent' }} />
+          style={{ borderColor: '#ff8a1f', borderTopColor: 'transparent' }} />
       </div>
     );
   }
@@ -125,7 +239,7 @@ export default function WorkoutFormPage() {
         </div>
         <button onClick={handleSave} disabled={saving}
           className="flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-white active:scale-95 transition-transform"
-          style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)' }}>
+          style={{ background: 'linear-gradient(135deg, #ff8a1f, #ff5a00)' }}>
           {saving ? <Loader2 size={16} className="animate-spin" /> : <Save size={16} />}
           {saving ? 'Salvando...' : 'Salvar'}
         </button>
@@ -155,9 +269,9 @@ export default function WorkoutFormPage() {
               <button key={value} onClick={() => setWorkoutType(value)}
                 className="py-2 px-3 rounded-xl text-sm font-semibold transition-all"
                 style={{
-                  background: workoutType === value ? 'rgba(99,102,241,0.2)' : '#0f0f1a',
-                  border: `1px solid ${workoutType === value ? '#6366f1' : '#2a2a4a'}`,
-                  color: workoutType === value ? '#6366f1' : '#94a3b8',
+                  background: workoutType === value ? 'rgba(255,138,31,0.2)' : '#0f0f1a',
+                  border: `1px solid ${workoutType === value ? '#ff8a1f' : '#2a2a4a'}`,
+                  color: workoutType === value ? '#ff8a1f' : '#94a3b8',
                 }}>
                 {label}
               </button>
@@ -183,7 +297,7 @@ export default function WorkoutFormPage() {
           <h2 className="font-bold text-white">Exercícios ({exercises.length})</h2>
           <button onClick={addExercise}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-bold text-white"
-            style={{ background: 'rgba(99,102,241,0.2)', border: '1px solid #6366f1', color: '#6366f1' }}>
+            style={{ background: 'rgba(255,138,31,0.18)', border: '1px solid #ff8a1f', color: '#ff8a1f' }}>
             <Plus size={16} />
             Adicionar
           </button>
@@ -198,7 +312,7 @@ export default function WorkoutFormPage() {
                 style={{ background: '#0f0f1a', borderBottom: '1px solid #2a2a4a' }}>
                 <div className="flex items-center gap-2">
                   <GripVertical size={16} style={{ color: '#94a3b8' }} />
-                  <span className="text-xs font-bold uppercase tracking-wider" style={{ color: '#6366f1' }}>
+                  <span className="text-xs font-bold uppercase tracking-wider" style={{ color: '#ff8a1f' }}>
                     Exercício {idx + 1}
                   </span>
                 </div>
@@ -210,17 +324,46 @@ export default function WorkoutFormPage() {
               </div>
 
               <div className="p-4 space-y-3">
-                {/* Nome */}
+                {/* Nome do Exercício com Sugestões */}
                 <div>
                   <label className="block text-xs font-semibold mb-1 uppercase tracking-wider" style={{ color: '#94a3b8' }}>
                     Nome do Exercício *
                   </label>
                   <div className="relative">
-                    <Dumbbell size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: '#6366f1' }} />
-                    <input value={ex.name} onChange={(e) => updateExercise(idx, 'name', e.target.value)}
+                    <Dumbbell size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: '#ff8a1f' }} />
+                    <input 
+                      value={ex.name} 
+                      onChange={(e) => handleNameChange(idx, e.target.value)}
+                      onFocus={() => setFocusedExerciseIndex(idx)}
+                      // O timeout evita que o dropdown feche antes de registrar o clique na sugestão
+                      onBlur={() => setTimeout(() => setFocusedExerciseIndex(null), 200)}
                       placeholder="Ex: Supino Reto"
-                      className="w-full pl-9 pr-4 py-2.5 rounded-xl text-white placeholder-slate-500 outline-none text-sm"
-                      style={{ background: '#0f0f1a', border: '1px solid #2a2a4a' }} />
+                      className="w-full pl-9 pr-4 py-2.5 rounded-xl text-white placeholder-slate-500 outline-none text-sm relative z-10"
+                      style={{ background: '#0f0f1a', border: '1px solid #2a2a4a' }} 
+                    />
+
+                    {/* Dropdown de Autocomplete Inteligente */}
+                    {focusedExerciseIndex === idx && ex.name.length > 1 && (
+                      <div className="absolute left-0 right-0 top-full mt-1.5 rounded-xl overflow-y-auto z-50 shadow-2xl custom-scrollbar"
+                           style={{ background: '#1a1a2e', border: '1px solid #2a2a4a', maxHeight: '200px' }}>
+                        {SUGGESTED_EXERCISES
+                          .filter(s => s.name.toLowerCase().includes(ex.name.toLowerCase()) && s.name.toLowerCase() !== ex.name.toLowerCase())
+                          .map((sug, i) => (
+                            <div 
+                              key={i} 
+                              onClick={() => handleSelectSuggestion(idx, sug)}
+                              className="px-4 py-3 cursor-pointer hover:bg-[#2a2a4a] flex justify-between items-center transition-colors border-b border-[#2a2a4a] last:border-0"
+                            >
+                              <span className="text-sm font-medium text-white">{sug.name}</span>
+                              <span className="text-[10px] font-bold px-2 py-1 rounded-lg uppercase tracking-wider"
+                                style={{ background: 'rgba(255,138,31,0.14)', color: '#fdba74' }}>
+                                {MUSCLE_GROUP_LABELS[sug.muscle]}
+                              </span>
+                            </div>
+                          ))}
+                        {/* Mensagem caso não encontre (Opcional, omitida para não poluir) */}
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -287,7 +430,7 @@ export default function WorkoutFormPage() {
       {/* Botão salvar final */}
       <button onClick={handleSave} disabled={saving}
         className="w-full py-4 rounded-2xl font-bold text-white flex items-center justify-center gap-2 active:scale-95 transition-transform mb-4"
-        style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)' }}>
+        style={{ background: 'linear-gradient(135deg, #ff8a1f, #ff5a00)' }}>
         {saving ? <Loader2 size={20} className="animate-spin" /> : <Save size={20} />}
         {saving ? 'Salvando...' : 'Salvar Treino'}
       </button>

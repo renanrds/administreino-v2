@@ -64,7 +64,7 @@ export default function ProfilePage() {
       <div className="flex items-center gap-4 mb-6 p-4 rounded-2xl"
         style={{ background: '#1a1a2e', border: '1px solid #2a2a4a' }}>
         <div className="w-16 h-16 rounded-2xl flex items-center justify-center text-2xl font-black text-white"
-          style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)' }}>
+          style={{ background: 'linear-gradient(135deg, #ff8a1f, #ff5a00)' }}>
           {(user?.first_name?.[0] || user?.username?.[0] || 'U').toUpperCase()}
         </div>
         <div>
@@ -72,7 +72,7 @@ export default function ProfilePage() {
             {user?.first_name} {user?.last_name}
           </p>
           <p className="text-sm" style={{ color: '#94a3b8' }}>@{user?.username}</p>
-          <p className="text-xs mt-0.5" style={{ color: '#6366f1' }}>{user?.email}</p>
+          <p className="text-xs mt-0.5" style={{ color: '#ff8a1f' }}>{user?.email}</p>
         </div>
       </div>
 
@@ -110,7 +110,7 @@ export default function ProfilePage() {
             Usuário
           </label>
           <div className="relative">
-            <User size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: '#6366f1' }} />
+            <User size={14} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: '#ff8a1f' }} />
             <input value={form.username} onChange={(e) => setForm({ ...form, username: e.target.value })}
               className={`${inputClass} pl-9`} style={inputStyle} />
           </div>
@@ -149,7 +149,7 @@ export default function ProfilePage() {
 
       <button onClick={handleSave} disabled={saving}
         className="w-full py-3 rounded-xl font-bold text-white flex items-center justify-center gap-2 active:scale-95 transition-transform mb-3"
-        style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)' }}>
+        style={{ background: 'linear-gradient(135deg, #ff8a1f, #ff5a00)' }}>
         {saving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
         {saving ? 'Salvando...' : 'Salvar Perfil'}
       </button>

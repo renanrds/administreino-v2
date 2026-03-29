@@ -1,8 +1,8 @@
 @import "tailwindcss";
 
 :root {
-  --color-primary: #6366f1;
-  --color-primary-dark: #4f46e5;
+  --color-primary: #ff8a1f;
+  --color-primary-dark: #e85d04;
   --color-accent: #f59e0b;
   --color-success: #10b981;
   --color-danger: #ef4444;
@@ -31,9 +31,9 @@ body {
 ::-webkit-scrollbar-thumb { background: var(--color-primary); border-radius: 2px; }
 
 @keyframes pulse-ring {
-  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.7); }
-  70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(99, 102, 241, 0); }
-  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(99, 102, 241, 0); }
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255, 138, 31, 0.7); }
+  70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(255, 138, 31, 0); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255, 138, 31, 0); }
 }
 
 @keyframes slide-up {
@@ -54,6 +54,10 @@ body {
 
 input[type=number]::-webkit-inner-spin-button,
 input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
-input[type=number] { -moz-appearance: textfield; }
+input[type=number] { appearance: textfield; -moz-appearance: textfield; }
 
 select option { background: #1a1a2e; color: #e2e8f0; }
+
+.safe-top {
+  padding-top: max(env(safe-area-inset-top, 0px), 8px);
+}

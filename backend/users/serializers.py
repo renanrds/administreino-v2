@@ -1,8 +1,28 @@
 from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from django.contrib.auth import get_user_model
+from .models import GymLocation
 
 User = get_user_model()
+
+
+class GymLocationSerializer(serializers.ModelSerializer):
+    """Serializer para localizações de academia do usuário."""
+    latitude = serializers.DecimalField(
+        max_digits=9,
+        decimal_places=6,
+        coerce_to_string=False  # Aceita números em vez de strings
+    )
+    longitude = serializers.DecimalField(
+        max_digits=9,
+        decimal_places=6,
+        coerce_to_string=False  # Aceita números em vez de strings
+    )
+
+    class Meta:
+        model = GymLocation
+        fields = ['id', 'name', 'latitude', 'longitude', 'is_primary', 'created_at']
+        read_only_fields = ['id', 'created_at']
 
 
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
@@ -16,6 +36,8 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
             'username': self.user.username,
             'first_name': self.user.first_name,
             'last_name': self.user.last_name,
+            'wellhub_enabled': self.user.wellhub_enabled,
+            'terms_accepted': self.user.terms_accepted,
         }
         return data
 
@@ -43,10 +65,13 @@ class UserRegisterSerializer(serializers.ModelSerializer):
 
 
 class UserProfileSerializer(serializers.ModelSerializer):
+    gym_locations = GymLocationSerializer(many=True, read_only=True)
+
     class Meta:
         model = User
         fields = [
             'id', 'email', 'username', 'first_name', 'last_name',
-            'avatar', 'bio', 'weight', 'height', 'created_at'
+            'avatar', 'bio', 'weight', 'height', 'wellhub_enabled', 'terms_accepted',
+            'gym_locations', 'created_at'
         ]
-        read_only_fields = ['id', 'email', 'created_at']
+        read_only_fields = ['id', 'email', 'created_at', 'gym_locations']

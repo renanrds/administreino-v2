@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Dumbbell, Mail, Lock, Eye, EyeOff, Loader2 } from 'lucide-react';
+import { Mail, Lock, Eye, EyeOff, Loader2 } from 'lucide-react';
 import api from '../services/api';
 import { useAuthStore } from '../store/authStore';
 
@@ -34,11 +34,11 @@ export default function LoginPage() {
       {/* Logo */}
       <div className="mb-8 text-center animate-slide-up">
         <div className="inline-flex items-center justify-center w-20 h-20 rounded-2xl mb-4 pulse-ring"
-          style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)' }}>
-          <Dumbbell size={40} className="text-white" />
+          style={{ background: 'linear-gradient(135deg, #ff8a1f, #ff5a00)' }}>
+          <img src="/branding/adminstreino-emblem.svg" alt="Administreino" className="w-12 h-12" />
         </div>
         <h1 className="text-3xl font-black text-white tracking-tight">
-          Adminis<span style={{ color: '#6366f1' }}>treino</span>
+          Adminis<span style={{ color: '#ff8a1f' }}>treino</span>
         </h1>
         <p className="text-sm mt-1" style={{ color: '#94a3b8' }}>
           Seu gerenciador de treinos
@@ -65,7 +65,7 @@ export default function LoginPage() {
               E-mail
             </label>
             <div className="relative">
-              <Mail size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: '#6366f1' }} />
+              <Mail size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: '#ff8a1f' }} />
               <input
                 type="email"
                 value={form.email}
@@ -74,7 +74,7 @@ export default function LoginPage() {
                 required
                 className="w-full pl-10 pr-4 py-3 rounded-xl text-white placeholder-slate-500 outline-none transition-all"
                 style={{ background: '#0f0f1a', border: '1px solid #2a2a4a' }}
-                onFocus={(e) => e.target.style.borderColor = '#6366f1'}
+                onFocus={(e) => e.target.style.borderColor = '#ff8a1f'}
                 onBlur={(e) => e.target.style.borderColor = '#2a2a4a'}
               />
             </div>
@@ -86,7 +86,7 @@ export default function LoginPage() {
               Senha
             </label>
             <div className="relative">
-              <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: '#6366f1' }} />
+              <Lock size={16} className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: '#ff8a1f' }} />
               <input
                 type={showPass ? 'text' : 'password'}
                 value={form.password}
@@ -95,7 +95,7 @@ export default function LoginPage() {
                 required
                 className="w-full pl-10 pr-10 py-3 rounded-xl text-white placeholder-slate-500 outline-none transition-all"
                 style={{ background: '#0f0f1a', border: '1px solid #2a2a4a' }}
-                onFocus={(e) => e.target.style.borderColor = '#6366f1'}
+                onFocus={(e) => e.target.style.borderColor = '#ff8a1f'}
                 onBlur={(e) => e.target.style.borderColor = '#2a2a4a'}
               />
               <button type="button" onClick={() => setShowPass(!showPass)}
@@ -110,7 +110,7 @@ export default function LoginPage() {
             type="submit"
             disabled={loading}
             className="w-full py-3 rounded-xl font-bold text-white transition-all active:scale-95 flex items-center justify-center gap-2 mt-2"
-            style={{ background: loading ? '#4f46e5' : 'linear-gradient(135deg, #6366f1, #8b5cf6)' }}>
+            style={{ background: loading ? '#e85d04' : 'linear-gradient(135deg, #ff8a1f, #ff5a00)' }}>
             {loading ? <Loader2 size={20} className="animate-spin" /> : null}
             {loading ? 'Entrando...' : 'Entrar'}
           </button>
@@ -118,7 +118,7 @@ export default function LoginPage() {
 
         <p className="text-center text-sm mt-4" style={{ color: '#94a3b8' }}>
           Não tem conta?{' '}
-          <Link to="/register" className="font-semibold" style={{ color: '#6366f1' }}>
+          <Link to="/register" className="font-semibold" style={{ color: '#ff8a1f' }}>
             Criar conta
           </Link>
         </p>

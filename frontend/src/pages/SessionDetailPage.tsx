@@ -39,7 +39,7 @@ export default function SessionDetailPage() {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="w-10 h-10 rounded-full border-2 animate-spin"
-          style={{ borderColor: '#6366f1', borderTopColor: 'transparent' }} />
+          style={{ borderColor: '#ff8a1f', borderTopColor: 'transparent' }} />
       </div>
     );
   }
@@ -88,10 +88,10 @@ export default function SessionDetailPage() {
       {/* Stats */}
       <div className="grid grid-cols-2 gap-3 mb-5">
         {[
-          { label: 'Duração', value: formatDuration(session.total_duration_seconds), icon: Clock, color: '#6366f1' },
+          { label: 'Duração', value: formatDuration(session.total_duration_seconds), icon: Clock, color: '#ff8a1f' },
           { label: 'Completado', value: `${session.completion_percentage}%`, icon: TrendingUp, color: '#f59e0b' },
           { label: 'Séries Feitas', value: session.exercise_logs.filter((l) => l.is_completed).length, icon: RotateCcw, color: '#10b981' },
-          { label: 'Volume Total', value: totalVolume > 0 ? `${totalVolume.toFixed(0)}kg` : '—', icon: Weight, color: '#8b5cf6' },
+          { label: 'Volume Total', value: totalVolume > 0 ? `${totalVolume.toFixed(0)}kg` : '—', icon: Weight, color: '#ff5a00' },
         ].map(({ label, value, icon: Icon, color }) => (
           <div key={label} className="rounded-2xl p-4"
             style={{ background: '#1a1a2e', border: '1px solid #2a2a4a' }}>
@@ -108,7 +108,7 @@ export default function SessionDetailPage() {
       <h2 className="font-bold text-white mb-3">Exercícios Realizados</h2>
       <div className="space-y-3">
         {Object.entries(grouped).map(([exName, logs]) => {
-          const color = MUSCLE_GROUP_COLORS[logs[0]?.exercise_muscle_group as any] || '#6366f1';
+          const color = MUSCLE_GROUP_COLORS[logs[0]?.exercise_muscle_group as any] || '#ff8a1f';
           const totalExVolume = logs.reduce((acc, l) => acc + (l.reps_done * Number(l.weight_kg || 0)), 0);
           const maxWeight = Math.max(...logs.map((l) => Number(l.weight_kg || 0)));
 

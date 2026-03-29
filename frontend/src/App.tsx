@@ -6,6 +6,8 @@ import RegisterPage from './pages/RegisterPage';
 import DashboardPage from './pages/DashboardPage';
 import WorkoutsPage from './pages/WorkoutsPage';
 import WorkoutFormPage from './pages/WorkoutFormPage';
+import PromptGeneratorPage from './pages/PromptGeneratorPage';
+import ImportWorkoutPage from './pages/ImportWorkoutPage';
 import ActiveSessionPage from './pages/ActiveSessionPage';
 import HistoryPage from './pages/HistoryPage';
 import SessionDetailPage from './pages/SessionDetailPage';
@@ -32,6 +34,8 @@ export default function App() {
           <Route path="workouts" element={<WorkoutsPage />} />
           <Route path="workouts/new" element={<WorkoutFormPage />} />
           <Route path="workouts/:id/edit" element={<WorkoutFormPage />} />
+          <Route path="workouts/gerar-prompt" element={<PromptGeneratorPage />} />
+          <Route path="workouts/importar" element={<ImportWorkoutPage />} />
           <Route path="history" element={<HistoryPage />} />
           <Route path="history/:id" element={<SessionDetailPage />} />
           <Route path="profile" element={<ProfilePage />} />

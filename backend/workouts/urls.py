@@ -6,6 +6,7 @@ from .views import (
     FinishSessionView, CancelSessionView,
     ExerciseLogListCreateView, ExerciseLogDetailView,
     DashboardView, WorkoutHistoryView,
+    ImportWorkoutFromJSONView,
 )
 
 urlpatterns = [
@@ -15,6 +16,7 @@ urlpatterns = [
     # Workouts
     path('workouts/', WorkoutListCreateView.as_view(), name='workout-list'),
     path('workouts/<int:pk>/', WorkoutDetailView.as_view(), name='workout-detail'),
+    path('workouts/import-from-json/', ImportWorkoutFromJSONView.as_view(), name='import-from-json'),
 
     # Exercises (nested under workout)
     path('workouts/<int:workout_id>/exercises/', ExerciseListCreateView.as_view(), name='exercise-list'),

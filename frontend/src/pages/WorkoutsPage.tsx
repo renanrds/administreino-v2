@@ -1,29 +1,41 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Dumbbell, ChevronRight, Play, Pencil, Trash2, Loader2 } from 'lucide-react';
+import { Plus, Dumbbell, Play, Pencil, Trash2, Loader2, Brain, Upload, Sparkles } from 'lucide-react';
 import api from '../services/api';
-import type { Workout } from '../types';
+import type { Workout, WorkoutType, WorkoutSession } from '../types';
 import { WORKOUT_TYPE_LABELS } from '../types';
 
 const TYPE_COLORS: Record<string, string> = {
   strength: '#f59e0b',
-  hypertrophy: '#6366f1',
+  hypertrophy: '#ff8a1f',
   endurance: '#10b981',
   cardio: '#ef4444',
   hiit: '#f97316',
-  flexibility: '#8b5cf6',
+  flexibility: '#ff5a00',
   functional: '#06b6d4',
 };
 
 export default function WorkoutsPage() {
   const navigate = useNavigate();
   const [workouts, setWorkouts] = useState<Workout[]>([]);
+  const [completedSessions, setCompletedSessions] = useState<WorkoutSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState<number | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Workout | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [quickFilter, setQuickFilter] = useState<'all' | 'today' | WorkoutType>('all');
 
   const fetchWorkouts = () => {
     setLoading(true);
-    api.get('/workouts/').then((r) => setWorkouts(r.data)).finally(() => setLoading(false));
+    Promise.all([
+      api.get('/workouts/'),
+      api.get('/sessions/?status=completed')
+    ])
+      .then(([workoutsRes, sessionsRes]) => {
+        setWorkouts(workoutsRes.data);
+        setCompletedSessions(sessionsRes.data);
+      })
+      .finally(() => setLoading(false));
   };
 
   useEffect(() => { fetchWorkouts(); }, []);
@@ -44,17 +56,116 @@ export default function WorkoutsPage() {
     }
   };
 
-  const handleDelete = async (id: number) => {
-    if (!confirm('Remover este treino?')) return;
-    await api.delete(`/workouts/${id}/`);
-    fetchWorkouts();
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    try {
+      await api.delete(`/workouts/${deleteTarget.id}/`);
+      setDeleteTarget(null);
+      fetchWorkouts();
+    } catch (err: any) {
+      alert(err.response?.data?.error || 'Erro ao remover treino.');
+    } finally {
+      setDeleting(false);
+    }
   };
+
+  const getSequenceOrder = (name: string): number => {
+    const upper = name.toUpperCase();
+    const dayMatch = upper.match(/DIA\s*([A-Z])/);
+    if (dayMatch) {
+      const code = dayMatch[1].charCodeAt(0);
+      if (code >= 65 && code <= 90) return code - 64;
+    }
+
+    const treinoMatch = upper.match(/TREINO\s*([A-Z])/);
+    if (treinoMatch) {
+      const code = treinoMatch[1].charCodeAt(0);
+      if (code >= 65 && code <= 90) return code - 64;
+    }
+
+    const singleLetter = upper.match(/\b([A-F])\b/);
+    if (singleLetter) {
+      return singleLetter[1].charCodeAt(0) - 64;
+    }
+
+    const numeric = upper.match(/\b(\d{1,2})\b/);
+    if (numeric) return Number(numeric[1]);
+
+    return 999;
+  };
+
+  const logicData = useMemo(() => {
+    if (!workouts.length) {
+      return {
+        nextWorkoutId: null as number | null,
+        referenceType: null as WorkoutType | null,
+        sortedByLogic: [] as Workout[],
+      };
+    }
+
+    const byId = new Map(workouts.map((w) => [w.id, w]));
+    const latest = [...completedSessions]
+      .sort((a, b) => new Date(b.finished_at || b.started_at).getTime() - new Date(a.finished_at || a.started_at).getTime())[0];
+
+    const lastWorkout = latest ? byId.get(latest.workout) : null;
+    const referenceType = lastWorkout?.workout_type || null;
+
+    let nextWorkoutId: number | null = null;
+    if (referenceType) {
+      const group = workouts
+        .filter((w) => w.workout_type === referenceType)
+        .sort((a, b) => {
+          const orderA = getSequenceOrder(a.name);
+          const orderB = getSequenceOrder(b.name);
+          if (orderA !== orderB) return orderA - orderB;
+          return a.name.localeCompare(b.name, 'pt-BR');
+        });
+
+      if (group.length > 0) {
+        const idx = group.findIndex((w) => w.id === lastWorkout?.id);
+        if (idx >= 0) nextWorkoutId = group[(idx + 1) % group.length].id;
+      }
+    }
+
+    const sortedByLogic = [...workouts].sort((a, b) => {
+      if (nextWorkoutId && a.id === nextWorkoutId) return -1;
+      if (nextWorkoutId && b.id === nextWorkoutId) return 1;
+
+      if (referenceType && a.workout_type === referenceType && b.workout_type === referenceType) {
+        const orderA = getSequenceOrder(a.name);
+        const orderB = getSequenceOrder(b.name);
+        if (orderA !== orderB) return orderA - orderB;
+      }
+
+      if (referenceType && a.workout_type === referenceType && b.workout_type !== referenceType) return -1;
+      if (referenceType && b.workout_type === referenceType && a.workout_type !== referenceType) return 1;
+
+      return a.name.localeCompare(b.name, 'pt-BR');
+    });
+
+    return { nextWorkoutId, referenceType, sortedByLogic };
+  }, [workouts, completedSessions]);
+
+  const availableTypes = useMemo(() => {
+    return Array.from(new Set(workouts.map((w) => w.workout_type))) as WorkoutType[];
+  }, [workouts]);
+
+  const displayedWorkouts = useMemo(() => {
+    const source = logicData.sortedByLogic;
+    if (quickFilter === 'all') return source;
+    if (quickFilter === 'today') {
+      if (!logicData.referenceType) return source;
+      return source.filter((w) => w.workout_type === logicData.referenceType);
+    }
+    return source.filter((w) => w.workout_type === quickFilter);
+  }, [logicData, quickFilter]);
 
   if (loading) {
     return (
       <div className="flex items-center justify-center h-64">
         <div className="w-10 h-10 rounded-full border-2 animate-spin"
-          style={{ borderColor: '#6366f1', borderTopColor: 'transparent' }} />
+          style={{ borderColor: '#ff8a1f', borderTopColor: 'transparent' }} />
       </div>
     );
   }
@@ -66,14 +177,80 @@ export default function WorkoutsPage() {
         <div>
           <h1 className="text-2xl font-black text-white">Meus Treinos</h1>
           <p className="text-sm" style={{ color: '#94a3b8' }}>{workouts.length} treino(s) cadastrado(s)</p>
+          {logicData.nextWorkoutId && (
+            <p className="text-xs mt-1 flex items-center gap-1.5" style={{ color: '#10b981' }}>
+              <Sparkles size={12} />
+              Treino recomendado do dia no topo (sequência lógica)
+            </p>
+          )}
         </div>
+        <div className="flex gap-2">
+          <button
+            onClick={() => navigate('/workouts/gerar-prompt')}
+            className="flex items-center gap-2 px-3 py-2 rounded-xl font-bold text-white active:scale-95 transition-transform"
+            style={{ background: '#ff5a00' }}
+            title="Gerar prompt para IA">
+            <Brain size={18} />
+          </button>
+            <button
+              onClick={() => navigate('/workouts/importar')}
+              className="flex items-center gap-2 px-3 py-2 rounded-xl font-bold text-white active:scale-95 transition-transform"
+              style={{ background: '#10b981' }}
+              title="Importar treino">
+              <Upload size={18} />
+            </button>
+          <button
+            onClick={() => navigate('/workouts/new')}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-white active:scale-95 transition-transform"
+            style={{ background: 'linear-gradient(135deg, #ff8a1f, #ff5a00)' }}>
+            <Plus size={18} />
+            Novo
+          </button>
+        </div>
+      </div>
+
+      {/* Filtros rápidos */}
+      <div className="flex gap-2 mb-4 overflow-x-auto pb-1">
         <button
-          onClick={() => navigate('/workouts/new')}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl font-bold text-white active:scale-95 transition-transform"
-          style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)' }}>
-          <Plus size={18} />
-          Novo
+          onClick={() => setQuickFilter('all')}
+          className="px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap"
+          style={{
+            background: quickFilter === 'all' ? 'rgba(255,138,31,0.2)' : '#1a1a2e',
+            border: `1px solid ${quickFilter === 'all' ? '#ff8a1f' : '#2a2a4a'}`,
+            color: quickFilter === 'all' ? '#fdba74' : '#94a3b8',
+          }}
+        >
+          Todos
         </button>
+
+        {logicData.referenceType && (
+          <button
+            onClick={() => setQuickFilter('today')}
+            className="px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap"
+            style={{
+              background: quickFilter === 'today' ? 'rgba(16,185,129,0.2)' : '#1a1a2e',
+              border: `1px solid ${quickFilter === 'today' ? '#10b981' : '#2a2a4a'}`,
+              color: quickFilter === 'today' ? '#10b981' : '#94a3b8',
+            }}
+          >
+            Sequência do dia
+          </button>
+        )}
+
+        {availableTypes.map((type) => (
+          <button
+            key={type}
+            onClick={() => setQuickFilter(type)}
+            className="px-3 py-1.5 rounded-xl text-xs font-bold transition-all whitespace-nowrap"
+            style={{
+              background: quickFilter === type ? `${TYPE_COLORS[type]}20` : '#1a1a2e',
+              border: `1px solid ${quickFilter === type ? TYPE_COLORS[type] : '#2a2a4a'}`,
+              color: quickFilter === type ? TYPE_COLORS[type] : '#94a3b8',
+            }}
+          >
+            {WORKOUT_TYPE_LABELS[type]}
+          </button>
+        ))}
       </div>
 
       {/* Lista */}
@@ -87,14 +264,24 @@ export default function WorkoutsPage() {
           <button
             onClick={() => navigate('/workouts/new')}
             className="px-6 py-3 rounded-xl font-bold text-white"
-            style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)' }}>
+            style={{ background: 'linear-gradient(135deg, #ff8a1f, #ff5a00)' }}>
             Criar Treino
           </button>
         </div>
+      ) : displayedWorkouts.length === 0 ? (
+        <div className="text-center py-16 rounded-2xl"
+          style={{ background: '#1a1a2e', border: '1px solid #2a2a4a' }}>
+          <Dumbbell size={42} className="mx-auto mb-3 opacity-20 text-white" />
+          <p className="font-bold text-white">Nenhum treino nesse filtro</p>
+          <p className="text-sm mt-1" style={{ color: '#94a3b8' }}>
+            Tente outro filtro rápido para ver mais treinos.
+          </p>
+        </div>
       ) : (
         <div className="space-y-3">
-          {workouts.map((workout) => {
-            const color = TYPE_COLORS[workout.workout_type] || '#6366f1';
+          {displayedWorkouts.map((workout) => {
+            const color = TYPE_COLORS[workout.workout_type] || '#ff8a1f';
+            const isRecommended = logicData.nextWorkoutId === workout.id;
             return (
               <div key={workout.id} className="rounded-2xl overflow-hidden"
                 style={{ background: '#1a1a2e', border: '1px solid #2a2a4a' }}>
@@ -102,8 +289,15 @@ export default function WorkoutsPage() {
                 <div className="h-1" style={{ background: color }} />
 
                 <div className="p-4">
+                  {isRecommended && (
+                    <div className="mb-2 inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-[11px] font-bold"
+                      style={{ background: 'rgba(16,185,129,0.15)', color: '#10b981' }}>
+                      <Sparkles size={12} />
+                      Próximo treino recomendado
+                    </div>
+                  )}
                   <div className="flex items-start justify-between mb-3">
-                    <div className="flex-1" onClick={() => navigate(`/workouts/${workout.id}`)}>
+                    <div className="flex-1" onClick={() => navigate(`/workouts/${workout.id}/edit`)}>
                       <h3 className="font-bold text-white text-lg leading-tight">{workout.name}</h3>
                       <div className="flex items-center gap-2 mt-1">
                         <span className="text-xs font-semibold px-2 py-0.5 rounded-full"
@@ -146,7 +340,7 @@ export default function WorkoutsPage() {
                       onClick={() => handleStart(workout)}
                       disabled={starting === workout.id}
                       className="flex-1 py-2.5 rounded-xl font-bold text-white flex items-center justify-center gap-2 active:scale-95 transition-transform"
-                      style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)' }}>
+                      style={{ background: 'linear-gradient(135deg, #ff8a1f, #ff5a00)' }}>
                       {starting === workout.id
                         ? <Loader2 size={16} className="animate-spin" />
                         : <Play size={16} />}
@@ -159,7 +353,7 @@ export default function WorkoutsPage() {
                       <Pencil size={16} />
                     </button>
                     <button
-                      onClick={() => handleDelete(workout.id)}
+                      onClick={() => setDeleteTarget(workout)}
                       className="p-2.5 rounded-xl transition-colors"
                       style={{ background: '#0f0f1a', color: '#ef4444', border: '1px solid #2a2a4a' }}>
                       <Trash2 size={16} />
@@ -169,6 +363,41 @@ export default function WorkoutsPage() {
               </div>
             );
           })}
+        </div>
+      )}
+
+      {deleteTarget && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3"
+          style={{ background: 'rgba(2,6,23,0.75)' }}>
+          <div className="w-full max-w-md rounded-2xl p-5"
+            style={{ background: '#111827', border: '1px solid #334155' }}>
+            <p className="text-sm font-bold uppercase tracking-wider mb-2" style={{ color: '#f59e0b' }}>
+              Confirmar remoção
+            </p>
+            <h3 className="text-lg font-black text-white leading-tight">
+              Remover treino "{deleteTarget.name}"?
+            </h3>
+            <p className="text-sm mt-2" style={{ color: '#94a3b8' }}>
+              Essa ação exclui o treino e seus exercícios cadastrados. Não é possível desfazer.
+            </p>
+
+            <div className="grid grid-cols-2 gap-2 mt-5">
+              <button
+                onClick={() => setDeleteTarget(null)}
+                disabled={deleting}
+                className="py-2.5 rounded-xl font-bold transition-all"
+                style={{ background: '#334155', color: '#cbd5e1' }}>
+                Manter treino
+              </button>
+              <button
+                onClick={handleDelete}
+                disabled={deleting}
+                className="py-2.5 rounded-xl font-bold text-white transition-all disabled:cursor-not-allowed"
+                style={{ background: deleting ? '#7f1d1d' : 'linear-gradient(135deg, #ef4444, #dc2626)' }}>
+                {deleting ? 'Removendo...' : 'Sim, remover'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -1,3 +1,8 @@
+export interface Coordinates {
+  latitude: number;
+  longitude: number;
+}
+
 export interface User {
   id: number;
   email: string;
@@ -8,6 +13,8 @@ export interface User {
   bio?: string;
   weight?: number;
   height?: number;
+  wellhub_enabled?: boolean;
+  terms_accepted?: boolean;
 }
 
 export interface AuthTokens {
@@ -96,6 +103,7 @@ export interface DashboardData {
   active_session: WorkoutSession | null;
   stats: DashboardStats;
   recent_sessions: WorkoutSession[];
+  gym_coordinates?: Coordinates;
 }
 
 export const MUSCLE_GROUP_LABELS: Record<MuscleGroup, string> = {
@@ -126,7 +134,7 @@ export const WORKOUT_TYPE_LABELS: Record<WorkoutType, string> = {
 export const MUSCLE_GROUP_COLORS: Record<MuscleGroup, string> = {
   chest: '#ef4444',
   back: '#3b82f6',
-  shoulders: '#8b5cf6',
+  shoulders: '#ff5a00',
   biceps: '#f59e0b',
   triceps: '#f97316',
   legs: '#10b981',
@@ -134,6 +142,6 @@ export const MUSCLE_GROUP_COLORS: Record<MuscleGroup, string> = {
   abs: '#06b6d4',
   calves: '#84cc16',
   forearms: '#a78bfa',
-  full_body: '#6366f1',
+  full_body: '#ff8a1f',
   cardio: '#14b8a6',
 };

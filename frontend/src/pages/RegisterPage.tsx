@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Dumbbell, Mail, Lock, User, Loader2 } from 'lucide-react';
+import { Mail, Lock, User, Loader2 } from 'lucide-react';
 import api from '../services/api';
 
 export default function RegisterPage() {
@@ -34,7 +34,7 @@ export default function RegisterPage() {
         {label}
       </label>
       <div className="relative">
-        <span className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: '#6366f1' }}>{icon}</span>
+        <span className="absolute left-3 top-1/2 -translate-y-1/2" style={{ color: '#ff8a1f' }}>{icon}</span>
         <input
           type={type}
           value={form[key]}
@@ -42,7 +42,7 @@ export default function RegisterPage() {
           required
           className="w-full pl-10 pr-4 py-3 rounded-xl text-white placeholder-slate-500 outline-none transition-all"
           style={{ background: '#0f0f1a', border: `1px solid ${error[key] ? '#ef4444' : '#2a2a4a'}` }}
-          onFocus={(e) => e.target.style.borderColor = '#6366f1'}
+          onFocus={(e) => e.target.style.borderColor = '#ff8a1f'}
           onBlur={(e) => e.target.style.borderColor = error[key] ? '#ef4444' : '#2a2a4a'}
         />
       </div>
@@ -56,11 +56,11 @@ export default function RegisterPage() {
 
       <div className="mb-6 text-center">
         <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl mb-3"
-          style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)' }}>
-          <Dumbbell size={32} className="text-white" />
+          style={{ background: 'linear-gradient(135deg, #ff8a1f, #ff5a00)' }}>
+          <img src="/branding/adminstreino-emblem.svg" alt="Administreino" className="w-10 h-10" />
         </div>
         <h1 className="text-2xl font-black text-white">
-          Adminis<span style={{ color: '#6366f1' }}>treino</span>
+          Adminis<span style={{ color: '#ff8a1f' }}>treino</span>
         </h1>
       </div>
 
@@ -97,7 +97,7 @@ export default function RegisterPage() {
             type="submit"
             disabled={loading || success}
             className="w-full py-3 rounded-xl font-bold text-white transition-all active:scale-95 flex items-center justify-center gap-2"
-            style={{ background: 'linear-gradient(135deg, #6366f1, #8b5cf6)' }}>
+            style={{ background: 'linear-gradient(135deg, #ff8a1f, #ff5a00)' }}>
             {loading ? <Loader2 size={20} className="animate-spin" /> : null}
             {loading ? 'Criando...' : 'Criar Conta'}
           </button>
@@ -105,7 +105,7 @@ export default function RegisterPage() {
 
         <p className="text-center text-sm mt-4" style={{ color: '#94a3b8' }}>
           Já tem conta?{' '}
-          <Link to="/login" className="font-semibold" style={{ color: '#6366f1' }}>Entrar</Link>
+          <Link to="/login" className="font-semibold" style={{ color: '#ff8a1f' }}>Entrar</Link>
         </p>
       </div>
     </div>
