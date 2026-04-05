@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Calendar, Clock, CheckCircle2, XCircle,
-  TrendingUp, ChevronRight
+  TrendingUp, ChevronRight, Trash2
 } from 'lucide-react';
 import api from '../services/api';
 import type { WorkoutSession } from '../types';
@@ -26,6 +26,9 @@ export default function HistoryPage() {
   const [sessions, setSessions] = useState<WorkoutSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'completed' | 'cancelled'>('all');
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [sessionToDelete, setSessionToDelete] = useState<WorkoutSession | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -40,6 +43,34 @@ export default function HistoryPage() {
   const avgCompletion = completed.length > 0
     ? Math.round(completed.reduce((acc, s) => acc + s.completion_percentage, 0) / completed.length)
     : 0;
+
+  const openDeleteModal = (session: WorkoutSession) => {
+    setSessionToDelete(session);
+    setShowDeleteModal(true);
+  };
+
+  const closeDeleteModal = () => {
+    if (deleting) return;
+    setShowDeleteModal(false);
+    setSessionToDelete(null);
+  };
+
+  const confirmDeleteSession = async () => {
+    if (!sessionToDelete) return;
+
+    try {
+      setDeleting(true);
+      await api.delete(`/sessions/${sessionToDelete.id}/`);
+      setSessions((prev) => prev.filter((s) => s.id !== sessionToDelete.id));
+      setShowDeleteModal(false);
+      setSessionToDelete(null);
+    } catch (error) {
+      console.error('Erro ao excluir sessão:', error);
+      alert('Não foi possível excluir este treino.');
+    } finally {
+      setDeleting(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -125,7 +156,22 @@ export default function HistoryPage() {
                     </p>
                   </div>
                 </div>
-                <ChevronRight size={18} style={{ color: '#94a3b8' }} />
+                <div className="flex items-center gap-1">
+                  {session.status !== 'in_progress' && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openDeleteModal(session);
+                      }}
+                      className="p-2 rounded-lg transition-colors"
+                      style={{ color: '#f87171' }}
+                      title="Excluir treino"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  )}
+                  <ChevronRight size={18} style={{ color: '#94a3b8' }} />
+                </div>
               </div>
 
               <div className="flex items-center gap-4">
@@ -155,6 +201,40 @@ export default function HistoryPage() {
               </div>
             </div>
           ))}
+        </div>
+      )}
+
+      {showDeleteModal && sessionToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4"
+          style={{ background: 'rgba(15,15,26,0.97)', backdropFilter: 'blur(20px)' }}>
+          <div className="w-full max-w-sm rounded-3xl p-6"
+            style={{ background: '#1a1a2e', border: '1px solid #2a2a4a', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}>
+            <h2 className="text-2xl font-black text-white text-center mb-2">Excluir treino?</h2>
+            <p className="text-sm text-center mb-6" style={{ color: '#94a3b8' }}>
+              Esta ação removerá <span className="text-white font-bold">{sessionToDelete.workout_name}</span> do histórico.
+            </p>
+
+            <div className="flex gap-3">
+              <button
+                onClick={closeDeleteModal}
+                disabled={deleting}
+                className="flex-1 py-3 rounded-xl font-bold transition-all active:scale-95"
+                style={{
+                  background: '#2a2a4a',
+                  color: '#94a3b8',
+                  border: '1px solid #3a3a5a'
+                }}>
+                Cancelar
+              </button>
+              <button
+                onClick={confirmDeleteSession}
+                disabled={deleting}
+                className="flex-1 py-3 rounded-xl font-bold text-white active:scale-95 transition-all disabled:opacity-60"
+                style={{ background: 'linear-gradient(135deg, #ef4444, #dc2626)' }}>
+                {deleting ? 'Excluindo...' : 'Excluir'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

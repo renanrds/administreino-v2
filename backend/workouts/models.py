@@ -60,6 +60,8 @@ class Exercise(models.Model):
     muscle_group = models.CharField(max_length=20, choices=MuscleGroup.choices)
     sets = models.PositiveIntegerField(default=3)
     reps = models.PositiveIntegerField(default=12)
+    min_reps = models.PositiveIntegerField(null=True, blank=True)
+    max_reps = models.PositiveIntegerField(null=True, blank=True)
     rest_seconds = models.PositiveIntegerField(default=60)
     weight_kg = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
     notes = models.TextField(blank=True, default="")
@@ -153,6 +155,8 @@ class ExerciseLog(models.Model):
     muscle_group_snapshot = models.CharField(max_length=20, choices=MuscleGroup.choices, blank=True, default="")
     set_number = models.PositiveIntegerField()
     planned_reps = models.PositiveIntegerField(null=True, blank=True)
+    planned_min_reps = models.PositiveIntegerField(null=True, blank=True)
+    planned_max_reps = models.PositiveIntegerField(null=True, blank=True)
     planned_weight_kg = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
     planned_rest_seconds = models.PositiveIntegerField(null=True, blank=True)
     reps_done = models.PositiveIntegerField(default=0)
@@ -183,6 +187,10 @@ class ExerciseLog(models.Model):
                 self.muscle_group_snapshot = self.exercise.muscle_group
             if self.planned_reps is None:
                 self.planned_reps = self.exercise.reps
+            if self.planned_min_reps is None:
+                self.planned_min_reps = self.exercise.min_reps
+            if self.planned_max_reps is None:
+                self.planned_max_reps = self.exercise.max_reps
             if self.planned_rest_seconds is None:
                 self.planned_rest_seconds = self.exercise.rest_seconds
             if self.planned_weight_kg is None:

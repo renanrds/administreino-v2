@@ -6,12 +6,14 @@ from .views import (
     FinishSessionView, CancelSessionView,
     ExerciseLogListCreateView, ExerciseLogDetailView,
     DashboardView, WorkoutHistoryView,
-    ImportWorkoutFromJSONView,
+    ImportWorkoutFromJSONView, RecommendedWorkoutView,
+    YouTubeSearchView,
 )
 
 urlpatterns = [
     # Dashboard
     path('dashboard/', DashboardView.as_view(), name='dashboard'),
+    path('workouts/recommended/', RecommendedWorkoutView.as_view(), name='workout-recommended'),
 
     # Workouts
     path('workouts/', WorkoutListCreateView.as_view(), name='workout-list'),
@@ -34,4 +36,7 @@ urlpatterns = [
 
     # History
     path('workouts/<int:workout_id>/history/', WorkoutHistoryView.as_view(), name='workout-history'),
+
+    # YouTube search
+    path('youtube-search/', YouTubeSearchView.as_view(), name='youtube-search'),
 ]

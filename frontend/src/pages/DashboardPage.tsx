@@ -10,8 +10,17 @@ import TermsModal from '../components/TermsModal';
 // Raio em metros para disparar o geofencing (100 metros)
 const GEOFENCE_RADIUS_METERS = 100;
 
-// Deep link para abrir o app do Wellhub na tela inicial
-const WELLHUB_APP_URL = 'gympass://'; 
+const GYM_APP_DEEP_LINKS: Record<string, string> = {
+  wellhub: 'gympass://',
+  totalpass: 'totalpass://',
+};
+
+function getGymAppLabel(value?: string) {
+  if (value === 'wellhub') return 'Wellhub';
+  if (value === 'totalpass') return 'Totalpass';
+  if (value === 'both') return 'Wellhub + Totalpass';
+  return 'Nenhum';
+}
 
 function formatDuration(seconds: number) {
   const m = Math.floor(seconds / 60);
@@ -40,21 +49,27 @@ export default function DashboardPage() {
 
   // Estados para Modal de Coordenadas
   const [showCoordinatesModal, setShowCoordinatesModal] = useState(false);
-  const [gyms, setGyms] = useState<Array<{ id?: number; name: string; lat: string; lng: string }>>([]);
-  const [newGym, setNewGym] = useState({ name: '', lat: '', lng: '' });
+  const [gyms, setGyms] = useState<Array<{ id?: number; name: string; lat: string; lng: string; app: 'wellhub' | 'totalpass' }>>([]);
+  const [newGym, setNewGym] = useState<{ name: string; lat: string; lng: string; app: 'wellhub' | 'totalpass' }>({
+    name: '', lat: '', lng: '', app: 'wellhub'
+  });
   const [gpsLoading, setGpsLoading] = useState(false);
   const [gymsLoading, setGymsLoading] = useState(false);
   const [showDeleteGymModal, setShowDeleteGymModal] = useState(false);
   const [gymToDelete, setGymToDelete] = useState<{ id?: number; index: number; name: string } | null>(null);
   const [deletingGym, setDeletingGym] = useState(false);
 
-  // Estado para descartar card de Wellhub por dia
-  const [wellhubCardDismissed, setWellhubCardDismissed] = useState(() => {
-    const stored = localStorage.getItem('wellhub_card_dismissed_date');
+  // Estado para descartar card de integração por dia
+  const [gymCardDismissed, setGymCardDismissed] = useState(() => {
+    const stored = localStorage.getItem('gym_app_card_dismissed_date');
     if (!stored) return false;
     const today = new Date().toISOString().split('T')[0];
     return stored === today;
   });
+
+  const gymPreference = user?.gym_app_preference || (user?.wellhub_enabled ? 'wellhub' : 'none');
+  const hasGymAppIntegration = gymPreference !== 'none';
+  const primaryDeepLink = gymPreference === 'totalpass' ? GYM_APP_DEEP_LINKS.totalpass : GYM_APP_DEEP_LINKS.wellhub;
 
     // Estado para Modal de Termos
     const [showTermsModal, setShowTermsModal] = useState(false);
@@ -132,30 +147,27 @@ export default function DashboardPage() {
     return () => navigator.geolocation.clearWatch(watchId);
   }, [data?.active_session, gymLocation]);
 
-  const toggleWellhubIntegration = async (e: React.MouseEvent) => {
-    e.stopPropagation();
+  const updateGymPreference = async (nextPreference: 'none' | 'wellhub' | 'totalpass' | 'both') => {
     if (!user) return;
-    
+
     try {
-      if (user.wellhub_enabled) {
-        // Desativar
-        await api.post('/auth/gym-locations/disable_wellhub/');
-        updateUser({ wellhub_enabled: false });
-      } else {
-        // Ativar
-        await api.post('/auth/gym-locations/enable_wellhub/');
-        updateUser({ wellhub_enabled: true });
-      }
+      const { data: response } = await api.post('/auth/gym-locations/set_gym_apps/', {
+        gym_app_preference: nextPreference,
+      });
+      updateUser({
+        gym_app_preference: response.gym_app_preference,
+        wellhub_enabled: response.wellhub_enabled,
+      });
     } catch (error) {
-      console.error('Erro ao alternar Wellhub:', error);
-      alert('Erro ao alternar Wellhub');
+      console.error('Erro ao atualizar apps de academia:', error);
+      alert('Erro ao atualizar apps de academia');
     }
   };
 
-  const dismissWellhubCard = () => {
+  const dismissGymCard = () => {
     const today = new Date().toISOString().split('T')[0];
-    localStorage.setItem('wellhub_card_dismissed_date', today);
-    setWellhubCardDismissed(true);
+    localStorage.setItem('gym_app_card_dismissed_date', today);
+    setGymCardDismissed(true);
   };
 
   const openWellhubConfigModal = async () => {
@@ -180,6 +192,7 @@ export default function DashboardPage() {
           name: newGym.name || 'Minha Academia',
           lat,
           lng,
+          app: newGym.app,
         });
         setGpsLoading(false);
       },
@@ -218,6 +231,7 @@ export default function DashboardPage() {
       // Payload que será enviado
       const payload = {
         name: newGym.name,
+        gym_app: newGym.app,
         latitude: latitudeRounded,
         longitude: longitudeRounded,
       };
@@ -240,10 +254,11 @@ export default function DashboardPage() {
         name: response.data.name,
         lat: response.data.latitude.toString(),
         lng: response.data.longitude.toString(),
+        app: response.data.gym_app || 'wellhub',
       }]);
 
       // Limpa o formulário
-      setNewGym({ name: '', lat: '', lng: '' });
+      setNewGym({ name: '', lat: '', lng: '', app: newGym.app });
       alert(`Academia "${response.data.name}" adicionada com sucesso!`);
     } catch (error: any) {
       console.error('❌ Erro ao adicionar academia:');
@@ -327,11 +342,16 @@ export default function DashboardPage() {
         lat: gym.latitude.toString(),
         lng: gym.longitude.toString(),
         id: gym.id,
+        app: gym.gym_app || 'wellhub',
       })));
 
-      // Se Wellhub está ativado e há academias, configura a academia principal para geofencing
-      if (user?.wellhub_enabled && response.data.length > 0) {
-        const primaryGym = response.data.find((g: any) => g.is_primary) || response.data[0];
+      // Se integração está ativa e há academias, configura a academia principal para geofencing
+      if (hasGymAppIntegration && response.data.length > 0) {
+        const preferredApps = gymPreference === 'both'
+          ? ['wellhub', 'totalpass']
+          : [gymPreference];
+        const gymCandidates = response.data.filter((g: any) => preferredApps.includes(g.gym_app));
+        const primaryGym = gymCandidates.find((g: any) => g.is_primary) || gymCandidates[0] || response.data[0];
         setGymLocation({
           latitude: parseFloat(primaryGym.latitude),
           longitude: parseFloat(primaryGym.longitude),
@@ -345,12 +365,12 @@ export default function DashboardPage() {
     }
   };
 
-  // Carrega as academias quando a página carrega (se Wellhub está ativado)
+  // Carrega as academias quando a página carrega (se integração está ativada)
   useEffect(() => {
-    if (user?.wellhub_enabled) {
+    if (hasGymAppIntegration) {
       loadUserGyms();
     }
-  }, [user?.wellhub_enabled]);
+  }, [hasGymAppIntegration]);
 
   const acceptTerms = async () => {
     try {
@@ -381,12 +401,15 @@ export default function DashboardPage() {
         await api.post(`/auth/gym-locations/${primaryGym.id}/set_primary/`);
       }
 
-      // Ativa o Wellhub
-      await api.post('/auth/gym-locations/enable_wellhub/');
+      // Ativa a integração conforme academias cadastradas
+      const apps = new Set(gyms.map((gym) => gym.app));
+      const preference = apps.size > 1 ? 'both' : [...apps][0] || 'none';
+      await updateGymPreference(preference as 'none' | 'wellhub' | 'totalpass' | 'both');
 
       // Atualiza o estado local
       updateUser({
-        wellhub_enabled: true,
+        gym_app_preference: preference as 'none' | 'wellhub' | 'totalpass' | 'both',
+        wellhub_enabled: preference === 'wellhub' || preference === 'both',
       });
 
       // Atualiza a localização da academia principal para o geofencing
@@ -398,12 +421,12 @@ export default function DashboardPage() {
       // Fecha e limpa o modal
       setShowCoordinatesModal(false);
       setGyms([]);
-      setNewGym({ name: '', lat: '', lng: '' });
+      setNewGym({ name: '', lat: '', lng: '', app: 'wellhub' });
 
-      alert('Wellhub ativado com sucesso!');
+      alert('Integração de academia ativada com sucesso!');
     } catch (error) {
-      console.error('Erro ao ativar Wellhub:', error);
-      alert('Erro ao ativar Wellhub. Tente novamente.');
+      console.error('Erro ao ativar integração:', error);
+      alert('Erro ao ativar integração. Tente novamente.');
     }
   };
 
@@ -429,7 +452,7 @@ export default function DashboardPage() {
 
   return (
     <div className="px-4 py-5 space-y-5 animate-fade-in pb-20">
-      {/* Saudação e Toggle Wellhub */}
+      {/* Saudação e integração de apps de academia */}
         {showTermsModal && (
           <TermsModal onAccept={acceptTerms} isLoading={acceptingTerms} />
         )}
@@ -442,25 +465,29 @@ export default function DashboardPage() {
           </h1>
         </div>
         <div className="flex items-center gap-2 rounded-full p-1.5" style={{ background: '#1a1a2e', border: '1px solid #2a2a4a' }}>
-            <button 
-                onClick={openWellhubConfigModal}
-                className="text-xs font-bold pl-2 py-1 px-2 rounded-full hover:bg-slate-700/50 transition-colors"
-                style={{ color: user?.wellhub_enabled ? '#10b981' : '#94a3b8'}}
+            <button
+              onClick={openWellhubConfigModal}
+              className="text-xs font-bold pl-2 py-1 px-2 rounded-full hover:bg-slate-700/50 transition-colors"
+              style={{ color: hasGymAppIntegration ? '#10b981' : '#94a3b8' }}
             >
-              Wellhub
+              Academias
             </button>
-            <button 
-                onClick={toggleWellhubIntegration}
-                className={`w-12 h-6 rounded-full p-1 flex transition-colors duration-300 ${user?.wellhub_enabled ? 'bg-emerald-600' : 'bg-slate-700'}`}
-                style={{ justifyContent: user?.wellhub_enabled ? 'flex-end' : 'flex-start' }}
+            <select
+              value={gymPreference}
+              onChange={(e) => updateGymPreference(e.target.value as 'none' | 'wellhub' | 'totalpass' | 'both')}
+              className="text-xs font-bold px-2 py-1 rounded-full outline-none"
+              style={{ background: '#2a2a4a', color: '#e2e8f0', border: '1px solid #3a3a5a' }}
             >
-                <div className="w-4 h-4 bg-white rounded-full shadow-md" />
-            </button>
+              <option value="none">Sem app</option>
+              <option value="wellhub">Wellhub</option>
+              <option value="totalpass">Totalpass</option>
+              <option value="both">Wellhub + Totalpass</option>
+            </select>
         </div>
       </div>
 
-      {/* Sugestão Wellhub (Geofencing ativado) */}
-      {isNearGym && user?.wellhub_enabled && !activeSession && !wellhubCardDismissed && (
+      {/* Sugestão de app de academia (Geofencing ativado) */}
+      {isNearGym && hasGymAppIntegration && !activeSession && !gymCardDismissed && (
         <div className="rounded-2xl p-4 animate-slide-up"
           style={{ background: 'rgba(16,185,129,0.1)', border: '1px solid rgba(16,185,129,0.3)', boxShadow: '0 8px 32px rgba(16,185,129,0.2)' }}>
           <div className="flex items-center justify-between gap-3 mb-3">
@@ -470,11 +497,11 @@ export default function DashboardPage() {
               </div>
               <div>
                   <p className="text-sm font-bold text-white">Você chegou na academia!</p>
-                  <p className="text-xs text-emerald-300">Deseja abrir o app do Wellhub para check-in?</p>
+                  <p className="text-xs text-emerald-300">Deseja abrir o app ({getGymAppLabel(gymPreference)}) para check-in?</p>
               </div>
             </div>
             <button
-              onClick={dismissWellhubCard}
+              onClick={dismissGymCard}
               className="flex-shrink-0 p-1 rounded-lg transition-colors hover:bg-emerald-900/30"
               title="Descartar"
             >
@@ -482,19 +509,19 @@ export default function DashboardPage() {
             </button>
           </div>
           <a 
-            href={WELLHUB_APP_URL} 
+            href={primaryDeepLink}
             target="_blank" 
             rel="noopener noreferrer"
             className="w-full flex items-center justify-center gap-2 py-3 rounded-xl bg-emerald-600 text-white font-bold text-sm"
           >
             <ExternalLink size={16} />
-            Abrir Wellhub
+            Abrir {getGymAppLabel(gymPreference)}
           </a>
         </div>
       )}
 
       {/* Erro de Localização */}
-      {locationError && user?.wellhub_enabled && (
+      {locationError && hasGymAppIntegration && (
         <div className="text-center text-xs p-3 rounded-xl bg-red-950/50 border border-red-800 text-red-300">
             {locationError}
         </div>
@@ -642,13 +669,20 @@ export default function DashboardPage() {
                 onClick={() => {
                   setShowCoordinatesModal(false);
                   setGyms([]);
-                  setNewGym({ name: '', lat: '', lng: '' });
+                  setNewGym({ name: '', lat: '', lng: '', app: 'wellhub' });
                   setGymsLoading(false);
                 }}
                 className="w-10 h-10 rounded-full flex items-center justify-center transition-colors hover:bg-slate-700/50"
               >
                 <X size={20} className="text-slate-400" />
               </button>
+            </div>
+            <div className="rounded-xl p-3 mb-6" style={{ background: '#1a1a2e', border: '1px solid #2a2a4a' }}>
+              <p className="text-xs font-bold mb-1" style={{ color: '#10b981' }}>Como funciona a integração</p>
+              <p className="text-xs" style={{ color: '#94a3b8' }}>
+                Ao escolher Wellhub, Totalpass ou ambos, o app usa geolocalização para identificar quando você chega perto da academia cadastrada
+                e mostra um atalho para abrir o app correto no check-in.
+              </p>
             </div>
 
             {/* Botão de Capturar GPS - Destacado */}
@@ -681,6 +715,21 @@ export default function DashboardPage() {
             <div className="rounded-2xl p-5 mb-6" style={{ background: 'rgba(26,26,46,0.8)', border: '1px solid rgba(16,185,129,0.15)' }}>
               <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4">Ou insira manualmente</p>
               <div className="space-y-3 mb-4">
+                <div>
+                  <label className="text-xs font-bold text-slate-300 uppercase tracking-wider block mb-2">
+                    App
+                  </label>
+                  <select
+                    value={newGym.app}
+                    onChange={(e) => setNewGym({ ...newGym, app: e.target.value as 'wellhub' | 'totalpass' })}
+                    className="w-full px-4 py-3 rounded-xl text-white text-sm outline-none transition-colors focus:ring-2 focus:ring-emerald-500/50"
+                    style={{ background: '#2a2a4a', border: '1px solid #3a3a5a' }}
+                  >
+                    <option value="wellhub">Wellhub</option>
+                    <option value="totalpass">Totalpass</option>
+                  </select>
+                </div>
+
                 <div>
                   <label className="text-xs font-bold text-slate-300 uppercase tracking-wider block mb-2">
                     Nome da Academia
@@ -759,6 +808,9 @@ export default function DashboardPage() {
                           <p className="text-xs text-slate-400 font-mono">
                             {parseFloat(gym.lat).toFixed(4)}, {parseFloat(gym.lng).toFixed(4)}
                           </p>
+                          <p className="text-[11px] mt-0.5" style={{ color: '#10b981' }}>
+                            {getGymAppLabel(gym.app)}
+                          </p>
                         </div>
                       </div>
                       <button
@@ -798,7 +850,7 @@ export default function DashboardPage() {
                 onClick={() => {
                   setShowCoordinatesModal(false);
                   setGyms([]);
-                  setNewGym({ name: '', lat: '', lng: '' });
+                  setNewGym({ name: '', lat: '', lng: '', app: 'wellhub' });
                   setGymsLoading(false);
                 }}
                 className="flex-1 py-3 rounded-xl font-bold text-slate-300 transition-all hover:bg-slate-700/50 active:scale-95"
@@ -816,7 +868,7 @@ export default function DashboardPage() {
                 }}
               >
                 <MapPin size={18} />
-                Ativar Wellhub
+                Ativar Integração
               </button>
             </div>
           </div>

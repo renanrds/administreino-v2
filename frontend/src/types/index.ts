@@ -14,6 +14,12 @@ export interface User {
   weight?: number;
   height?: number;
   wellhub_enabled?: boolean;
+  gym_app_preference?: 'none' | 'wellhub' | 'totalpass' | 'both';
+  gender?: 'male' | 'female' | 'non_binary' | 'other' | 'prefer_not_to_say' | '';
+  experience_level?: 'beginner' | 'intermediate' | 'advanced';
+  age?: number;
+  primary_goal?: string;
+  weekly_training_days?: number;
   terms_accepted?: boolean;
 }
 
@@ -39,6 +45,9 @@ export interface Exercise {
   muscle_group_display: string;
   sets: number;
   reps: number;
+  min_reps?: number;
+  max_reps?: number;
+  reps_display?: string;
   rest_seconds: number;
   weight_kg?: number;
   notes?: string;
@@ -67,12 +76,22 @@ export interface ExerciseLog {
   exercise_name: string;
   exercise_muscle_group: string;
   set_number: number;
+  planned_reps?: number;
+  planned_min_reps?: number;
+  planned_max_reps?: number;
   reps_done: number;
   weight_kg?: number;
   rest_seconds_taken?: number;
   is_completed: boolean;
   notes?: string;
   logged_at: string;
+}
+
+export interface RecommendedWorkout {
+  next_workout_id: number | null;
+  active_program_name?: string;
+  last_workout_name?: string | null;
+  reason?: string;
 }
 
 export interface WorkoutSession {

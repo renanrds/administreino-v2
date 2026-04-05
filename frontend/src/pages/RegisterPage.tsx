@@ -7,6 +7,8 @@ export default function RegisterPage() {
   const navigate = useNavigate();
   const [form, setForm] = useState({
     email: '', username: '', first_name: '', last_name: '',
+    gender: 'prefer_not_to_say',
+    experience_level: 'intermediate',
     password: '', password2: ''
   });
   const [loading, setLoading] = useState(false);
@@ -90,6 +92,43 @@ export default function RegisterPage() {
           </div>
           {field('username', 'Usuário', 'text', <User size={16} />)}
           {field('email', 'E-mail', 'email', <Mail size={16} />)}
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold mb-2 uppercase tracking-wider" style={{ color: '#94a3b8' }}>
+                Gênero
+              </label>
+              <select
+                value={form.gender}
+                onChange={(e) => setForm({ ...form, gender: e.target.value })}
+                className="w-full px-3 py-3 rounded-xl text-white outline-none transition-all"
+                style={{ background: '#0f0f1a', border: '1px solid #2a2a4a' }}
+              >
+                <option value="prefer_not_to_say">Prefiro não informar</option>
+                <option value="male">Masculino</option>
+                <option value="female">Feminino</option>
+                <option value="non_binary">Não-binário</option>
+                <option value="other">Outro</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold mb-2 uppercase tracking-wider" style={{ color: '#94a3b8' }}>
+                Nível
+              </label>
+              <select
+                value={form.experience_level}
+                onChange={(e) => setForm({ ...form, experience_level: e.target.value })}
+                className="w-full px-3 py-3 rounded-xl text-white outline-none transition-all"
+                style={{ background: '#0f0f1a', border: '1px solid #2a2a4a' }}
+              >
+                <option value="beginner">Iniciante</option>
+                <option value="intermediate">Intermediário</option>
+                <option value="advanced">Avançado</option>
+              </select>
+            </div>
+          </div>
+
           {field('password', 'Senha', 'password', <Lock size={16} />)}
           {field('password2', 'Confirmar Senha', 'password', <Lock size={16} />)}
 

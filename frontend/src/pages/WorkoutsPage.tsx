@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Dumbbell, Play, Pencil, Trash2, Loader2, Brain, Upload, Sparkles } from 'lucide-react';
 import api from '../services/api';
-import type { Workout, WorkoutType, WorkoutSession } from '../types';
+import type { RecommendedWorkout, Workout, WorkoutType } from '../types';
 import { WORKOUT_TYPE_LABELS } from '../types';
 
 const TYPE_COLORS: Record<string, string> = {
@@ -18,7 +18,7 @@ const TYPE_COLORS: Record<string, string> = {
 export default function WorkoutsPage() {
   const navigate = useNavigate();
   const [workouts, setWorkouts] = useState<Workout[]>([]);
-  const [completedSessions, setCompletedSessions] = useState<WorkoutSession[]>([]);
+  const [recommendation, setRecommendation] = useState<RecommendedWorkout>({ next_workout_id: null });
   const [loading, setLoading] = useState(true);
   const [starting, setStarting] = useState<number | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Workout | null>(null);
@@ -29,11 +29,11 @@ export default function WorkoutsPage() {
     setLoading(true);
     Promise.all([
       api.get('/workouts/'),
-      api.get('/sessions/?status=completed')
+      api.get('/workouts/recommended/')
     ])
-      .then(([workoutsRes, sessionsRes]) => {
+      .then(([workoutsRes, recommendationRes]) => {
         setWorkouts(workoutsRes.data);
-        setCompletedSessions(sessionsRes.data);
+        setRecommendation(recommendationRes.data);
       })
       .finally(() => setLoading(false));
   };
@@ -70,82 +70,19 @@ export default function WorkoutsPage() {
     }
   };
 
-  const getSequenceOrder = (name: string): number => {
-    const upper = name.toUpperCase();
-    const dayMatch = upper.match(/DIA\s*([A-Z])/);
-    if (dayMatch) {
-      const code = dayMatch[1].charCodeAt(0);
-      if (code >= 65 && code <= 90) return code - 64;
-    }
-
-    const treinoMatch = upper.match(/TREINO\s*([A-Z])/);
-    if (treinoMatch) {
-      const code = treinoMatch[1].charCodeAt(0);
-      if (code >= 65 && code <= 90) return code - 64;
-    }
-
-    const singleLetter = upper.match(/\b([A-F])\b/);
-    if (singleLetter) {
-      return singleLetter[1].charCodeAt(0) - 64;
-    }
-
-    const numeric = upper.match(/\b(\d{1,2})\b/);
-    if (numeric) return Number(numeric[1]);
-
-    return 999;
-  };
-
   const logicData = useMemo(() => {
-    if (!workouts.length) {
-      return {
-        nextWorkoutId: null as number | null,
-        referenceType: null as WorkoutType | null,
-        sortedByLogic: [] as Workout[],
-      };
-    }
-
-    const byId = new Map(workouts.map((w) => [w.id, w]));
-    const latest = [...completedSessions]
-      .sort((a, b) => new Date(b.finished_at || b.started_at).getTime() - new Date(a.finished_at || a.started_at).getTime())[0];
-
-    const lastWorkout = latest ? byId.get(latest.workout) : null;
-    const referenceType = lastWorkout?.workout_type || null;
-
-    let nextWorkoutId: number | null = null;
-    if (referenceType) {
-      const group = workouts
-        .filter((w) => w.workout_type === referenceType)
-        .sort((a, b) => {
-          const orderA = getSequenceOrder(a.name);
-          const orderB = getSequenceOrder(b.name);
-          if (orderA !== orderB) return orderA - orderB;
-          return a.name.localeCompare(b.name, 'pt-BR');
-        });
-
-      if (group.length > 0) {
-        const idx = group.findIndex((w) => w.id === lastWorkout?.id);
-        if (idx >= 0) nextWorkoutId = group[(idx + 1) % group.length].id;
-      }
-    }
+    const nextWorkoutId = recommendation.next_workout_id ?? null;
+    const recommendedWorkout = workouts.find((workout) => workout.id === nextWorkoutId) || null;
+    const referenceType = recommendedWorkout?.workout_type || null;
 
     const sortedByLogic = [...workouts].sort((a, b) => {
       if (nextWorkoutId && a.id === nextWorkoutId) return -1;
       if (nextWorkoutId && b.id === nextWorkoutId) return 1;
-
-      if (referenceType && a.workout_type === referenceType && b.workout_type === referenceType) {
-        const orderA = getSequenceOrder(a.name);
-        const orderB = getSequenceOrder(b.name);
-        if (orderA !== orderB) return orderA - orderB;
-      }
-
-      if (referenceType && a.workout_type === referenceType && b.workout_type !== referenceType) return -1;
-      if (referenceType && b.workout_type === referenceType && a.workout_type !== referenceType) return 1;
-
       return a.name.localeCompare(b.name, 'pt-BR');
     });
 
     return { nextWorkoutId, referenceType, sortedByLogic };
-  }, [workouts, completedSessions]);
+  }, [workouts, recommendation]);
 
   const availableTypes = useMemo(() => {
     return Array.from(new Set(workouts.map((w) => w.workout_type))) as WorkoutType[];
@@ -180,7 +117,7 @@ export default function WorkoutsPage() {
           {logicData.nextWorkoutId && (
             <p className="text-xs mt-1 flex items-center gap-1.5" style={{ color: '#10b981' }}>
               <Sparkles size={12} />
-              Treino recomendado do dia no topo (sequência lógica)
+              {recommendation.reason || 'Treino recomendado do dia no topo (sequencia logica)'}
             </p>
           )}
         </div>

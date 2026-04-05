@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import type { WorkoutType } from '../types';
 import { WORKOUT_TYPE_LABELS } from '../types';
+import { useAuthStore } from '../store/authStore';
 
 const WORKOUT_TYPES = Object.entries(WORKOUT_TYPE_LABELS) as [WorkoutType, string][];
 
@@ -21,6 +22,7 @@ const SPLIT_TYPES = [
 
 export default function PromptGeneratorPage() {
   const navigate = useNavigate();
+  const { user } = useAuthStore();
   const [splitType, setSplitType] = useState('ABC');
   const [objective, setObjective] = useState<WorkoutType>('hypertrophy');
   const [experience, setExperience] = useState('intermediate');
@@ -48,6 +50,22 @@ export default function PromptGeneratorPage() {
     const splitDays = splitType.length === 1 ? '1 dia' : `${splitType.length} dias`;
     const splitLabel = SPLIT_TYPES.find(s => s.id === splitType)?.label || splitType;
 
+    const profileContext = [
+      user?.gender ? `- **Genero do Aluno**: ${user.gender}` : '',
+      user?.experience_level ? `- **Nivel salvo no perfil**: ${user.experience_level}` : '',
+      user?.age ? `- **Idade**: ${user.age}` : '',
+      user?.weight ? `- **Peso**: ${user.weight} kg` : '',
+      user?.height ? `- **Altura**: ${user.height} cm` : '',
+      user?.weekly_training_days ? `- **Dias por semana**: ${user.weekly_training_days}` : '',
+      user?.primary_goal ? `- **Objetivo principal salvo**: ${user.primary_goal}` : '',
+    ].filter(Boolean).join('\n');
+
+    const levelStrategy = experience === 'advanced'
+      ? '- Para avançado: aplicar estratégia de low volume (menos exercícios por sessão, alta intensidade, foco em compostos, 1-2 isoladores estratégicos e maior controle de fadiga).'
+      : experience === 'beginner'
+      ? '- Para iniciante: técnica e aprendizado motor primeiro, volume moderado, evitar falha em todas as séries.'
+      : '- Para intermediário: progressão linear/ondulatória moderada com equilíbrio entre volume e intensidade.';
+
     return `Você é um personal trainer especializado em criação de programas de treino personalizados.
 
 Preciso que você crie um programa de treino com as seguintes especificações:
@@ -59,6 +77,7 @@ Preciso que você crie um programa de treino com as seguintes especificações:
 - **Duração por Sessão**: aproximadamente ${duration} minutos
 - **Equipamento Disponível**: ${equipmentDesc}
 ${notes ? `- **Observações Especiais**: ${notes}` : ''}
+${profileContext ? `\n🧬 DADOS DO PERFIL DO ALUNO:\n${profileContext}` : ''}
 
 🎯 INSTRUÇÕES DE RESPOSTA:
 
@@ -94,6 +113,8 @@ Retorne EXATAMENTE no seguinte formato JSON, sem explicações adicionais:
 - Progressão lógica: compostos primeiro, isolados depois
 - Rest periods apropriados para o objetivo (Força: 120-180s, Hipertrofia: 60-90s, Resistência: 30-45s)
 - Volume e intensidade adequados ao nível de experiência
+- Estratégia por nível obrigatória:
+${levelStrategy}
 - Variedade de exercícios dentro dos grupos musculares
 - Considerar a recuperação entre grupos musculares
 - **Nomes dos exercícios**: sempre em PORTUGUÊS do Brasil, o nome mais comum utilizado em academias brasileiras (ex: "Supino Reto", "Rosca Direta", "Leg Press 45°", "Puxada Frontal", "Cadeira Extensora"). Não use tradução literal do inglês.

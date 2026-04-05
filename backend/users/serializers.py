@@ -21,7 +21,7 @@ class GymLocationSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = GymLocation
-        fields = ['id', 'name', 'latitude', 'longitude', 'is_primary', 'created_at']
+        fields = ['id', 'name', 'gym_app', 'latitude', 'longitude', 'is_primary', 'created_at']
         read_only_fields = ['id', 'created_at']
 
 
@@ -37,6 +37,12 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
             'first_name': self.user.first_name,
             'last_name': self.user.last_name,
             'wellhub_enabled': self.user.wellhub_enabled,
+            'gym_app_preference': self.user.gym_app_preference,
+            'gender': self.user.gender,
+            'experience_level': self.user.experience_level,
+            'age': self.user.age,
+            'primary_goal': self.user.primary_goal,
+            'weekly_training_days': self.user.weekly_training_days,
             'terms_accepted': self.user.terms_accepted,
         }
         return data
@@ -48,7 +54,11 @@ class UserRegisterSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['email', 'username', 'first_name', 'last_name', 'password', 'password2']
+        fields = [
+            'email', 'username', 'first_name', 'last_name',
+            'gender', 'experience_level', 'age', 'primary_goal', 'weekly_training_days',
+            'password', 'password2'
+        ]
 
     def validate(self, data):
         if data['password'] != data['password2']:
@@ -66,12 +76,19 @@ class UserRegisterSerializer(serializers.ModelSerializer):
 
 class UserProfileSerializer(serializers.ModelSerializer):
     gym_locations = GymLocationSerializer(many=True, read_only=True)
+    gender_display = serializers.CharField(source='get_gender_display', read_only=True)
+    experience_level_display = serializers.CharField(source='get_experience_level_display', read_only=True)
+    gym_app_preference_display = serializers.CharField(source='get_gym_app_preference_display', read_only=True)
 
     class Meta:
         model = User
         fields = [
             'id', 'email', 'username', 'first_name', 'last_name',
-            'avatar', 'bio', 'weight', 'height', 'wellhub_enabled', 'terms_accepted',
-            'gym_locations', 'created_at'
+            'avatar', 'bio', 'weight', 'height',
+            'gender', 'gender_display',
+            'experience_level', 'experience_level_display',
+            'age', 'primary_goal', 'weekly_training_days',
+            'wellhub_enabled', 'gym_app_preference', 'gym_app_preference_display',
+            'terms_accepted', 'gym_locations', 'created_at'
         ]
         read_only_fields = ['id', 'email', 'created_at', 'gym_locations']

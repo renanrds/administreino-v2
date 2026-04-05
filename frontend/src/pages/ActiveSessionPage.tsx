@@ -2,18 +2,26 @@ import { useEffect, useState, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   CheckCircle2, Circle, ChevronDown, ChevronUp, Timer,
-  Flame, X, Trophy, Zap, Play, Pause, XCircle, Plus,
-  ArrowLeft, Loader2
+  Flame, X, Trophy, Zap, Play, Pause, XCircle, Plus, Minus,
+  ArrowLeft, Loader2, HelpCircle
 } from 'lucide-react';
 import api from '../services/api';
 import type { WorkoutSession, Exercise, ExerciseLog } from '../types';
 import { MUSCLE_GROUP_COLORS } from '../types';
 
-// ─── Cronômetro de Descanso ──────────────────────────────────────────────────
+// ─── Cronômetro de Descanso (flutuante e arrastável) ─────────────────────────
 function RestTimer({ seconds, onDone }: { seconds: number; onDone: () => void }) {
   const [remaining, setRemaining] = useState(seconds);
   const [paused, setPaused] = useState(false);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [expanded, setExpanded] = useState(false);
+
+  // Drag state
+  const [pos, setPos] = useState({ x: 100, y: 400 });
+  const dragRef = useRef<{ startX: number; startY: number; originX: number; originY: number; dragging: boolean }>({
+    startX: 0, startY: 0, originX: 100, originY: 400, dragging: false
+  });
+  const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!paused) {
@@ -27,47 +35,369 @@ function RestTimer({ seconds, onDone }: { seconds: number; onDone: () => void })
     return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
   }, [paused]);
 
+  // Drag handlers
+  const handlePointerDown = (e: React.PointerEvent) => {
+    dragRef.current = { startX: e.clientX, startY: e.clientY, originX: pos.x, originY: pos.y, dragging: true };
+    (e.target as HTMLElement).setPointerCapture(e.pointerId);
+  };
+  const handlePointerMove = (e: React.PointerEvent) => {
+    if (!dragRef.current.dragging) return;
+    const dx = e.clientX - dragRef.current.startX;
+    const dy = e.clientY - dragRef.current.startY;
+    let newX = dragRef.current.originX + dx;
+    let newY = dragRef.current.originY + dy;
+    const el = containerRef.current;
+    if (el) {
+      newX = Math.max(0, Math.min(window.innerWidth - el.offsetWidth, newX));
+      newY = Math.max(0, Math.min(window.innerHeight - el.offsetHeight, newY));
+    }
+    setPos({ x: newX, y: newY });
+  };
+  const handlePointerUp = () => { dragRef.current.dragging = false; };
+
   const pct = ((seconds - remaining) / seconds) * 100;
+  const circleSize = expanded ? 120 : 80;
+  const r = expanded ? 26 : 22;
+
+  return (
+    <div
+      ref={containerRef}
+      className="fixed z-50 select-none"
+      style={{ left: pos.x, top: pos.y, touchAction: 'none' }}
+      onPointerDown={handlePointerDown}
+      onPointerMove={handlePointerMove}
+      onPointerUp={handlePointerUp}
+    >
+      <div
+        className="rounded-2xl shadow-2xl"
+        style={{
+          background: 'rgba(15,15,26,0.95)',
+          backdropFilter: 'blur(16px)',
+          border: `1px solid ${remaining <= 5 ? 'rgba(239,68,68,0.8)' : 'rgba(255,138,31,0.6)'}`,
+          boxShadow: `0 0 18px ${remaining <= 5 ? 'rgba(239,68,68,0.35)' : 'rgba(255,138,31,0.25)'}, inset 0 0 12px ${remaining <= 5 ? 'rgba(239,68,68,0.08)' : 'rgba(255,138,31,0.06)'}`,
+          minWidth: expanded ? 200 : undefined,
+          transition: 'border-color 0.3s, box-shadow 0.3s',
+        }}
+      >
+        {expanded ? (
+          /* ── Modo expandido ── */
+          <div className="p-4 text-center cursor-pointer" onClick={() => setExpanded(false)}>
+            <p className="text-xs font-bold uppercase tracking-widest mb-3" style={{ color: '#94a3b8' }}>
+              Descanso
+            </p>
+            <div className="relative mx-auto mb-3" style={{ width: circleSize, height: circleSize }}>
+              <svg className="w-full h-full -rotate-90" viewBox="0 0 60 60">
+                <circle cx="30" cy="30" r={r} fill="none" stroke="#2a2a4a" strokeWidth="5" />
+                <circle cx="30" cy="30" r={r} fill="none"
+                  stroke={remaining <= 5 ? '#ef4444' : '#ff8a1f'}
+                  strokeWidth="5" strokeLinecap="round"
+                  strokeDasharray={`${2 * Math.PI * r}`}
+                  strokeDashoffset={`${2 * Math.PI * r * (1 - pct / 100)}`}
+                  style={{ transition: 'stroke-dashoffset 1s linear, stroke 0.3s' }} />
+              </svg>
+              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <span className="text-2xl font-black text-white">{remaining}</span>
+                <span className="text-[10px]" style={{ color: '#94a3b8' }}>seg</span>
+              </div>
+            </div>
+            <div className="flex gap-2 justify-center">
+              <button onClick={(e) => { e.stopPropagation(); setPaused(!paused); }}
+                className="px-3 py-1.5 rounded-lg text-sm font-bold flex items-center gap-1"
+                style={{ background: '#1a1a2e', border: '1px solid #2a2a4a', color: '#e2e8f0' }}>
+                {paused ? <Play size={14} /> : <Pause size={14} />}
+                {paused ? 'Retomar' : 'Pausar'}
+              </button>
+              <button onClick={(e) => { e.stopPropagation(); onDone(); }}
+                className="px-3 py-1.5 rounded-lg text-sm font-bold text-white"
+                style={{ background: 'linear-gradient(135deg, #ff8a1f, #ff5a00)' }}>
+                Pular
+              </button>
+            </div>
+          </div>
+        ) : (
+          /* ── Modo compacto (pill) ── */
+          <div
+            className="flex items-center gap-2 px-3 py-2 cursor-pointer"
+            onClick={(e) => { e.stopPropagation(); setExpanded(true); }}
+          >
+            <div className="relative" style={{ width: circleSize, height: circleSize }}>
+              <svg className="w-full h-full -rotate-90" viewBox="0 0 60 60">
+                <circle cx="30" cy="30" r={r} fill="none" stroke="#2a2a4a" strokeWidth="5" />
+                <circle cx="30" cy="30" r={r} fill="none"
+                  stroke={remaining <= 5 ? '#ef4444' : '#ff8a1f'}
+                  strokeWidth="5" strokeLinecap="round"
+                  strokeDasharray={`${2 * Math.PI * r}`}
+                  strokeDashoffset={`${2 * Math.PI * r * (1 - pct / 100)}`}
+                  style={{ transition: 'stroke-dashoffset 1s linear, stroke 0.3s' }} />
+              </svg>
+              <div className="absolute inset-0 flex items-center justify-center">
+                <span className="text-lg font-black text-white">{remaining}</span>
+              </div>
+            </div>
+            <div className="flex flex-col">
+              <span className="text-xs font-bold text-white leading-tight">Descanso</span>
+              <span className="text-[10px]" style={{ color: '#94a3b8' }}>{remaining}s</span>
+            </div>
+            <button onClick={(e) => { e.stopPropagation(); onDone(); }} className="ml-1">
+              <X size={16} className="text-gray-400" />
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Contador de Repetições ──────────────────────────────────────────────────
+const REP_TEMPO_MS = 3000;
+
+function isAlternatingExercise(name: string): boolean {
+  const lower = name.toLowerCase();
+  return lower.includes('alternad') || lower.includes('unilateral');
+}
+
+interface RepCounterProps {
+  targetReps: number;
+  exerciseName: string;
+  isAlternating: boolean;
+  currentWeight: string;
+  onComplete: (repsDone: number, weight: string) => void;
+  onCancel: () => void;
+}
+
+function RepCounter({ targetReps, exerciseName, isAlternating, currentWeight, onComplete, onCancel }: RepCounterProps) {
+  const [phase, setPhase] = useState<'countdown' | 'counting' | 'finished'>('countdown');
+  const [countdown, setCountdown] = useState(3);
+  const [currentRep, setCurrentRep] = useState(0);
+  const [pulse, setPulse] = useState(false);
+  const [weight, setWeight] = useState(currentWeight);
+
+  // Countdown 3-2-1
+  useEffect(() => {
+    if (phase !== 'countdown') return;
+    if (countdown <= 0) {
+      setPhase('counting');
+      setCurrentRep(1);
+      setPulse(true);
+      return;
+    }
+    const timer = setTimeout(() => setCountdown((c) => c - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [phase, countdown]);
+
+  // Advance reps
+  useEffect(() => {
+    if (phase !== 'counting') return;
+    if (currentRep >= targetReps) {
+      setPhase('finished');
+      return;
+    }
+    const timer = setTimeout(() => {
+      setCurrentRep((prev) => prev + 1);
+      setPulse(true);
+    }, REP_TEMPO_MS);
+    return () => clearTimeout(timer);
+  }, [phase, currentRep, targetReps]);
+
+  // Pulse animation reset
+  useEffect(() => {
+    if (!pulse) return;
+    const t = setTimeout(() => setPulse(false), 250);
+    return () => clearTimeout(t);
+  }, [pulse]);
+
+  const handleStop = () => setPhase('finished');
+  const decreaseRep = () => setCurrentRep((prev) => Math.max(0, prev - 1));
+  const increaseRep = () => setCurrentRep((prev) => Math.min(targetReps * 2, prev + 1));
+  const decreaseWeight = () => setWeight((prev) => {
+    const v = parseFloat(prev) || 0;
+    const next = Math.max(0, v - 0.5);
+    return next % 1 === 0 ? next.toString() : next.toFixed(1);
+  });
+  const increaseWeight = () => setWeight((prev) => {
+    const v = parseFloat(prev) || 0;
+    const next = v + 0.5;
+    return next % 1 === 0 ? next.toString() : next.toFixed(1);
+  });
+  const pct = targetReps > 0 ? (currentRep / targetReps) * 100 : 0;
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col items-center justify-center px-6"
       style={{ background: 'rgba(15,15,26,0.97)', backdropFilter: 'blur(20px)' }}>
-      <div className="text-center animate-slide-up">
-        <p className="text-sm font-bold uppercase tracking-widest mb-6" style={{ color: '#94a3b8' }}>
-          Tempo de Descanso
+      <div className="text-center w-full max-w-sm">
+        <p className="text-sm font-bold uppercase tracking-widest mb-1" style={{ color: '#94a3b8' }}>
+          {exerciseName}
+        </p>
+        <p className="text-xs mb-6" style={{ color: '#64748b' }}>
+          {isAlternating
+            ? `Alternado — ${targetReps} movimentos (${Math.round(targetReps / 2)} cada lado)`
+            : phase === 'countdown' ? 'Prepare-se...'
+              : phase === 'finished' ? 'Série concluída!'
+                : 'Contagem de repetições'}
         </p>
 
         {/* Círculo de progresso */}
-        <div className="relative w-48 h-48 mx-auto mb-6">
+        <div className="relative w-56 h-56 mx-auto mb-8">
           <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
-            <circle cx="50" cy="50" r="44" fill="none" stroke="#2a2a4a" strokeWidth="8" />
-            <circle cx="50" cy="50" r="44" fill="none"
-              stroke={remaining <= 5 ? '#ef4444' : '#ff8a1f'}
-              strokeWidth="8"
-              strokeLinecap="round"
-              strokeDasharray={`${2 * Math.PI * 44}`}
-              strokeDashoffset={`${2 * Math.PI * 44 * (1 - pct / 100)}`}
-              style={{ transition: 'stroke-dashoffset 1s linear, stroke 0.3s' }} />
+            <circle cx="50" cy="50" r="44" fill="none" stroke="#2a2a4a" strokeWidth="6" />
+            {phase !== 'countdown' && (
+              <circle cx="50" cy="50" r="44" fill="none"
+                stroke={phase === 'finished' ? '#10b981' : '#ff8a1f'}
+                strokeWidth="6" strokeLinecap="round"
+                strokeDasharray={`${2 * Math.PI * 44}`}
+                strokeDashoffset={`${2 * Math.PI * 44 * (1 - pct / 100)}`}
+                style={{ transition: 'stroke-dashoffset 0.5s ease, stroke 0.3s' }} />
+            )}
           </svg>
           <div className="absolute inset-0 flex flex-col items-center justify-center">
-            <span className="text-5xl font-black text-white">{remaining}</span>
-            <span className="text-sm" style={{ color: '#94a3b8' }}>segundos</span>
+            {phase === 'countdown' ? (
+              <span className="text-8xl font-black transition-transform duration-200"
+                style={{
+                  color: '#ff8a1f', textShadow: '0 0 40px rgba(255,138,31,0.5)',
+                  transform: pulse ? 'scale(1.2)' : 'scale(1)'
+                }}>
+                {countdown || 'GO'}
+              </span>
+            ) : (
+              <>
+                <span className="text-7xl font-black text-white transition-transform duration-200"
+                  style={{
+                    transform: pulse ? 'scale(1.15)' : 'scale(1)',
+                    textShadow: phase === 'finished'
+                      ? '0 0 40px rgba(16,185,129,0.5)'
+                      : '0 0 40px rgba(255,138,31,0.3)',
+                  }}>
+                  {currentRep}
+                </span>
+                <span className="text-sm font-semibold" style={{ color: '#94a3b8' }}>
+                  de {targetReps}
+                </span>
+              </>
+            )}
           </div>
         </div>
 
-        <div className="flex gap-3 justify-center">
-          <button onClick={() => setPaused(!paused)}
-            className="px-6 py-3 rounded-xl font-bold flex items-center gap-2"
-            style={{ background: '#1a1a2e', border: '1px solid #2a2a4a', color: '#e2e8f0' }}>
-            {paused ? <Play size={18} /> : <Pause size={18} />}
-            {paused ? 'Retomar' : 'Pausar'}
+        {phase === 'countdown' && (
+          <button onClick={onCancel}
+            className="w-full py-3 rounded-xl font-bold"
+            style={{ color: '#94a3b8', background: '#1a1a2e', border: '1px solid #2a2a4a' }}>
+            Cancelar
           </button>
-          <button onClick={onDone}
-            className="px-6 py-3 rounded-xl font-bold text-white"
-            style={{ background: 'linear-gradient(135deg, #ff8a1f, #ff5a00)' }}>
-            Pular
-          </button>
-        </div>
+        )}
+
+        {phase === 'counting' && (
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={decreaseRep}
+                className="flex-1 py-3 rounded-xl font-bold text-white flex items-center justify-center gap-2 active:scale-95 transition-transform"
+                style={{
+                  background: 'rgba(239,68,68,0.08)',
+                  border: '1px solid rgba(239,68,68,0.65)',
+                  boxShadow: '0 0 12px rgba(239,68,68,0.22)',
+                  color: '#fca5a5'
+                }}>
+                <Minus size={16} />
+                REP
+              </button>
+              <button
+                onClick={increaseRep}
+                className="flex-1 py-3 rounded-xl font-bold text-white flex items-center justify-center gap-2 active:scale-95 transition-transform"
+                style={{
+                  background: 'rgba(16,185,129,0.08)',
+                  border: '1px solid rgba(16,185,129,0.65)',
+                  boxShadow: '0 0 12px rgba(16,185,129,0.22)',
+                  color: '#86efac'
+                }}>
+                <Plus size={16} />
+                REP
+              </button>
+            </div>
+            <button onClick={handleStop}
+              className="w-full py-5 rounded-2xl font-black text-white text-lg flex items-center justify-center gap-3 active:scale-95 transition-transform"
+              style={{ background: 'linear-gradient(135deg, #ef4444, #dc2626)', boxShadow: '0 0 30px rgba(239,68,68,0.3)' }}>
+              <Pause size={24} />
+              Parar ({currentRep} reps)
+            </button>
+            <button onClick={onCancel} className="w-full py-3 rounded-xl font-bold"
+              style={{ color: '#94a3b8' }}>
+              Cancelar
+            </button>
+          </div>
+        )}
+
+        {phase === 'finished' && (
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={decreaseRep}
+                className="flex-1 py-3 rounded-xl font-bold text-white flex items-center justify-center gap-2 active:scale-95 transition-transform"
+                style={{
+                  background: 'rgba(239,68,68,0.08)',
+                  border: '1px solid rgba(239,68,68,0.65)',
+                  boxShadow: '0 0 12px rgba(239,68,68,0.22)',
+                  color: '#fca5a5'
+                }}>
+                <Minus size={16} />
+                REP
+              </button>
+              <button
+                onClick={increaseRep}
+                className="flex-1 py-3 rounded-xl font-bold text-white flex items-center justify-center gap-2 active:scale-95 transition-transform"
+                style={{
+                  background: 'rgba(16,185,129,0.08)',
+                  border: '1px solid rgba(16,185,129,0.65)',
+                  boxShadow: '0 0 12px rgba(16,185,129,0.22)',
+                  color: '#86efac'
+                }}>
+                <Plus size={16} />
+                REP
+              </button>
+            </div>
+            {/* Ajuste rápido de peso */}
+            <div className="flex items-center gap-2">
+              <button
+                onClick={decreaseWeight}
+                className="flex-1 py-3 rounded-xl font-bold flex items-center justify-center gap-1 active:scale-95 transition-transform"
+                style={{
+                  background: 'rgba(239,68,68,0.08)',
+                  border: '1px solid rgba(239,68,68,0.65)',
+                  boxShadow: '0 0 12px rgba(239,68,68,0.22)',
+                  color: '#fca5a5'
+                }}>
+                <Minus size={14} />
+                0.5kg
+              </button>
+              <div className="flex flex-col items-center px-2">
+                <span className="text-[10px] font-semibold" style={{ color: '#94a3b8' }}>PESO</span>
+                <span className="text-xl font-black text-white">{weight || '—'}</span>
+                <span className="text-[10px]" style={{ color: '#64748b' }}>kg</span>
+              </div>
+              <button
+                onClick={increaseWeight}
+                className="flex-1 py-3 rounded-xl font-bold flex items-center justify-center gap-1 active:scale-95 transition-transform"
+                style={{
+                  background: 'rgba(16,185,129,0.08)',
+                  border: '1px solid rgba(16,185,129,0.65)',
+                  boxShadow: '0 0 12px rgba(16,185,129,0.22)',
+                  color: '#86efac'
+                }}>
+                <Plus size={14} />
+                0.5kg
+              </button>
+            </div>
+            <button onClick={() => onComplete(currentRep, weight)}
+              className="w-full py-5 rounded-2xl font-black text-white text-lg flex items-center justify-center gap-3 active:scale-95 transition-transform"
+              style={{ background: 'linear-gradient(135deg, #ff8a1f, #ff5a00)', boxShadow: '0 0 30px rgba(255,138,31,0.3)' }}>
+              <Timer size={24} />
+              Iniciar Descanso
+            </button>
+            <button onClick={onCancel} className="w-full py-3 rounded-xl font-bold"
+              style={{ color: '#94a3b8' }}>
+              Cancelar
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -134,7 +464,7 @@ export default function ActiveSessionPage() {
   const [sets, setSets] = useState<SetState[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedEx, setExpandedEx] = useState<number | null>(null);
-  const [restTimer, setRestTimer] = useState<{ seconds: number } | null>(null);
+  const [restTimer, setRestTimer] = useState<{ seconds: number; fromExerciseId: number; fromSetNumber: number; autoNext: boolean } | null>(null);
   const [completing, setCompleting] = useState(false);
   const [showCompletion, setShowCompletion] = useState(false);
   const [showFinishModal, setShowFinishModal] = useState(false);
@@ -142,13 +472,20 @@ export default function ActiveSessionPage() {
   const [cancelling, setCancelling] = useState(false);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [focusedWeight, setFocusedWeight] = useState<string>('');
+  const [nextSetHighlight, setNextSetHighlight] = useState<string>('');
+  const [repCounter, setRepCounter] = useState<{
+    exerciseId: number; setNumber: number; targetReps: number;
+    exerciseName: string; isAlternating: boolean; weight: string;
+  } | null>(null);
+  const [videoModal, setVideoModal] = useState<{ videoId: string; exerciseName: string } | null>(null);
+  const [videoLoading, setVideoLoading] = useState(false);
 
   // Cronômetro total baseado na hora de início real
   useEffect(() => {
     if (!session?.started_at) return;
-    
+
     const startTime = new Date(session.started_at).getTime();
-    
+
     const updateTimer = () => {
       const now = Date.now();
       const diffInSeconds = Math.floor((now - startTime) / 1000);
@@ -157,7 +494,7 @@ export default function ActiveSessionPage() {
 
     updateTimer(); // Atualiza imediatamente ao carregar
     const interval = setInterval(updateTimer, 1000);
-    
+
     return () => clearInterval(interval);
   }, [session?.started_at]);
 
@@ -165,7 +502,7 @@ export default function ActiveSessionPage() {
     const h = Math.floor(elapsedSeconds / 3600);
     const m = Math.floor((elapsedSeconds % 3600) / 60);
     const s = elapsedSeconds % 60;
-    
+
     if (h > 0) {
       return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
     }
@@ -229,6 +566,31 @@ export default function ActiveSessionPage() {
     return { done, total: exSets.length };
   };
 
+  const findNextPendingSet = (currentSets: SetState[], currentExerciseId: number, currentSetNumber: number) => {
+    const currentExercisePending = currentSets
+      .filter((s) => s.exerciseId === currentExerciseId && !s.completed && s.setNumber > currentSetNumber)
+      .sort((a, b) => a.setNumber - b.setNumber);
+
+    if (currentExercisePending.length > 0) {
+      return currentExercisePending[0];
+    }
+
+    const orderedExerciseIds = exercises.map((exercise) => exercise.id);
+    const currentExerciseIdx = orderedExerciseIds.findIndex((id) => id === currentExerciseId);
+
+    for (let idx = currentExerciseIdx + 1; idx < orderedExerciseIds.length; idx += 1) {
+      const exerciseId = orderedExerciseIds[idx];
+      const nextPending = currentSets
+        .filter((s) => s.exerciseId === exerciseId && !s.completed)
+        .sort((a, b) => a.setNumber - b.setNumber)[0];
+      if (nextPending) {
+        return nextPending;
+      }
+    }
+
+    return null;
+  };
+
   const updateSet = (exerciseId: number, setNumber: number, field: 'reps' | 'weight', value: string) => {
     setSets((prev) => {
       const updated = prev.map((s) =>
@@ -263,7 +625,25 @@ export default function ActiveSessionPage() {
     }));
   };
 
-  const completeSet = async (exerciseId: number, setNumber: number) => {
+  const replaceWeightForSet = (exerciseId: number, setNumber: number, weightValue: number) => {
+    setSets((prev) => prev.map((s) => {
+      if (s.exerciseId === exerciseId && s.setNumber === setNumber) {
+        return { ...s, weight: weightValue.toString() };
+      }
+      return s;
+    }));
+  };
+
+  const applyWeightDownFromSet = (exerciseId: number, setNumber: number, weightValue: number) => {
+    setSets((prev) => prev.map((s) => {
+      if (s.exerciseId === exerciseId && s.setNumber >= setNumber && !s.completed) {
+        return { ...s, weight: weightValue.toString() };
+      }
+      return s;
+    }));
+  };
+
+  const completeSet = async (exerciseId: number, setNumber: number, repsOverride?: number, autoNext = false, weightOverride?: string) => {
     const setData = sets.find((s) => s.exerciseId === exerciseId && s.setNumber === setNumber);
     if (!setData) return;
 
@@ -271,8 +651,8 @@ export default function ActiveSessionPage() {
     const payload = {
       exercise: exerciseId,
       set_number: setNumber,
-      reps_done: setData.reps,
-      weight_kg: setData.weight || null,
+      reps_done: repsOverride ?? setData.reps,
+      weight_kg: (weightOverride !== undefined ? weightOverride : setData.weight) || null,
       is_completed: true,
     };
 
@@ -285,11 +665,23 @@ export default function ActiveSessionPage() {
         logId = data.id;
       }
 
-      setSets((prev) => prev.map((s) =>
-        s.exerciseId === exerciseId && s.setNumber === setNumber
-          ? { ...s, completed: true, logId }
-          : s
-      ));
+      let nextPendingKey = '';
+      setSets((prev) => {
+        const updatedSets = prev.map((s) =>
+          s.exerciseId === exerciseId && s.setNumber === setNumber
+            ? { ...s, completed: true, logId }
+            : s
+        );
+
+        const pending = findNextPendingSet(updatedSets, exerciseId, setNumber);
+        if (pending) {
+          nextPendingKey = `${pending.exerciseId}-${pending.setNumber}`;
+          setExpandedEx(pending.exerciseId);
+        }
+
+        return updatedSets;
+      });
+      setNextSetHighlight(nextPendingKey);
 
       // Verifica se treino foi concluído automaticamente
       const { data: updatedSession } = await api.get(`/sessions/${id}/`);
@@ -302,7 +694,7 @@ export default function ActiveSessionPage() {
 
       // Inicia timer de descanso
       if (ex && ex.rest_seconds > 0) {
-        setRestTimer({ seconds: ex.rest_seconds });
+        setRestTimer({ seconds: ex.rest_seconds, fromExerciseId: exerciseId, fromSetNumber: setNumber, autoNext });
       }
     } catch (err) {
       console.error('Erro ao registrar série:', err);
@@ -328,6 +720,39 @@ export default function ActiveSessionPage() {
     } catch (err) {
       console.error('Erro ao descompletar série:', err);
     }
+  };
+
+  const startRepCounter = (exerciseId: number, setNumber: number) => {
+    const ex = exercises.find((e) => e.id === exerciseId);
+    const setData = sets.find((s) => s.exerciseId === exerciseId && s.setNumber === setNumber);
+    if (!ex || !setData) return;
+
+    const alternating = isAlternatingExercise(ex.name);
+    const target = alternating ? setData.reps * 2 : setData.reps;
+
+    setRepCounter({
+      exerciseId,
+      setNumber,
+      targetReps: target,
+      exerciseName: ex.name,
+      isAlternating: alternating,
+      weight: setData.weight,
+    });
+  };
+
+  const handleRepCounterComplete = async (counterReps: number, adjustedWeight: string) => {
+    if (!repCounter) return;
+    const { exerciseId, setNumber, isAlternating: alt } = repCounter;
+    const actualReps = alt ? Math.round(counterReps / 2) : counterReps;
+
+    setSets((prev) => prev.map((s) =>
+      s.exerciseId === exerciseId && s.setNumber === setNumber
+        ? { ...s, reps: actualReps, weight: adjustedWeight }
+        : s
+    ));
+
+    setRepCounter(null);
+    await completeSet(exerciseId, setNumber, actualReps, true, adjustedWeight);
   };
 
   const handleFinish = () => {
@@ -377,7 +802,68 @@ export default function ActiveSessionPage() {
   return (
     <div className="min-h-screen" style={{ background: '#0f0f1a' }}>
       {restTimer && (
-        <RestTimer seconds={restTimer.seconds} onDone={() => setRestTimer(null)} />
+        <RestTimer seconds={restTimer.seconds} onDone={() => {
+          const { fromExerciseId, fromSetNumber, autoNext } = restTimer;
+          setRestTimer(null);
+          if (!autoNext) return;
+          // Auto-inicia o rep counter da próxima série pendente (mesmo exercício apenas)
+          const nextPending = findNextPendingSet(sets, fromExerciseId, fromSetNumber);
+          if (nextPending && nextPending.exerciseId === fromExerciseId) {
+            const nextEx = exercises.find((e) => e.id === nextPending.exerciseId);
+            if (nextEx) {
+              const alt = isAlternatingExercise(nextEx.name);
+              const target = alt ? nextPending.reps * 2 : nextPending.reps;
+              setExpandedEx(nextPending.exerciseId);
+              const nextSetData = sets.find((s) => s.exerciseId === nextPending.exerciseId && s.setNumber === nextPending.setNumber);
+              setRepCounter({
+                exerciseId: nextPending.exerciseId,
+                setNumber: nextPending.setNumber,
+                targetReps: target,
+                exerciseName: nextEx.name,
+                isAlternating: alt,
+                weight: nextSetData?.weight ?? '',
+              });
+            }
+          }
+        }} />
+      )}
+
+      {repCounter && (
+        <RepCounter
+          targetReps={repCounter.targetReps}
+          exerciseName={repCounter.exerciseName}
+          isAlternating={repCounter.isAlternating}
+          currentWeight={repCounter.weight}
+          onComplete={handleRepCounterComplete}
+          onCancel={() => setRepCounter(null)}
+        />
+      )}
+
+      {/* Modal de Vídeo */}
+      {videoModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4"
+          style={{ background: 'rgba(15,15,26,0.97)', backdropFilter: 'blur(20px)' }}
+          onClick={() => setVideoModal(null)}>
+          <div className="w-full max-w-lg animate-slide-up" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3">
+              <p className="text-sm font-bold text-white truncate">{videoModal.exerciseName}</p>
+              <button onClick={() => setVideoModal(null)}
+                className="w-8 h-8 rounded-full flex items-center justify-center"
+                style={{ background: '#2a2a4a' }}>
+                <X size={16} className="text-white" />
+              </button>
+            </div>
+            <div className="rounded-2xl overflow-hidden" style={{ aspectRatio: '16/9', background: '#000' }}>
+              <iframe
+                src={`https://www.youtube.com/embed/${videoModal.videoId}?autoplay=1&mute=1&rel=0`}
+                className="w-full h-full"
+                allow="autoplay; encrypted-media"
+                allowFullScreen
+                title={videoModal.exerciseName}
+              />
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Modal de Confirmação de Finalização */}
@@ -539,8 +1025,8 @@ export default function ActiveSessionPage() {
                 background: progressPct >= 100
                   ? 'linear-gradient(90deg, #10b981, #059669)'
                   : progressPct >= 50
-                  ? 'linear-gradient(90deg, #f59e0b, #f97316)'
-                  : 'linear-gradient(90deg, #ff8a1f, #ff5a00)',
+                    ? 'linear-gradient(90deg, #f59e0b, #f97316)'
+                    : 'linear-gradient(90deg, #ff8a1f, #ff5a00)',
                 boxShadow: `0 0 12px ${progressPct >= 100 ? '#10b981' : '#ff8a1f'}80`
               }} />
           </div>
@@ -555,8 +1041,8 @@ export default function ActiveSessionPage() {
           <p className="text-xs font-semibold" style={{ color: '#a5b4fc' }}>
             {progressPct < 30 ? 'Ótimo começo! Continue assim! 🔥'
               : progressPct < 60 ? 'Você está na metade! Não pare agora! 💪'
-              : progressPct < 90 ? 'Quase lá! Falta pouco! ⚡'
-              : 'Última etapa! Dê tudo de si! 🏆'}
+                : progressPct < 90 ? 'Quase lá! Falta pouco! ⚡'
+                  : 'Última etapa! Dê tudo de si! 🏆'}
           </p>
         </div>
       )}
@@ -586,14 +1072,40 @@ export default function ActiveSessionPage() {
                     {allDone ? <CheckCircle2 size={20} /> : exIdx + 1}
                   </div>
                   <div className="text-left">
-                    <p className="font-bold text-white text-sm">{ex.name}</p>
+                    <div className="flex items-center gap-1.5">
+                      <p className="font-bold text-white text-sm">{ex.name}</p>
+                      <span
+                        role="button"
+                        tabIndex={0}
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          if (videoLoading) return;
+                          setVideoLoading(true);
+                          try {
+                            const { data } = await api.get('/youtube-search/', { params: { q: ex.name } });
+                            if (data.video_id) {
+                              setVideoModal({ videoId: data.video_id, exerciseName: ex.name });
+                            } else {
+                              window.open(`https://www.youtube.com/results?search_query=${encodeURIComponent(ex.name + ' como fazer')}`, '_blank');
+                            }
+                          } catch {
+                            window.open(`https://www.youtube.com/results?search_query=${encodeURIComponent(ex.name + ' como fazer')}`, '_blank');
+                          } finally {
+                            setVideoLoading(false);
+                          }
+                        }}
+                        className="w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 opacity-60 hover:opacity-100 transition-opacity cursor-pointer"
+                        title="Ver vídeo demonstrativo">
+                        <HelpCircle size={14} style={{ color: '#94a3b8' }} />
+                      </span>
+                    </div>
                     <div className="flex items-center gap-2 mt-0.5">
                       <span className="text-xs px-1.5 py-0.5 rounded-full font-semibold"
                         style={{ background: `${exColor}20`, color: exColor }}>
                         {ex.muscle_group_display}
                       </span>
                       <span className="text-xs" style={{ color: '#94a3b8' }}>
-                        {ex.sets}×{ex.reps}
+                        {ex.sets}×{ex.reps_display || (ex.min_reps && ex.max_reps && ex.min_reps !== ex.max_reps ? `${ex.min_reps}-${ex.max_reps}` : ex.reps)}
                         {ex.weight_kg ? ` · ${ex.weight_kg}kg` : ''}
                       </span>
                     </div>
@@ -611,165 +1123,199 @@ export default function ActiveSessionPage() {
               {/* Séries expandidas */}
               {isExpanded && (
                 <div className="px-4 pb-4 space-y-2" style={{ borderTop: '1px solid #2a2a4a' }}>
-                  {/* Cabeçalho das colunas */}
-                  <div className="grid grid-cols-4 gap-2 pt-3 pb-1">
-                    {['Série', 'Reps', 'Carga (kg)', 'Status'].map((h) => (
-                      <span key={h} className="text-xs font-bold uppercase tracking-wider text-center"
-                        style={{ color: '#94a3b8' }}>{h}</span>
-                    ))}
-                  </div>
+                  <div className="pt-2" />
 
                   {getExerciseSets(ex.id).map((setData) => {
-                // Pesos comuns recomendados
-                const commonWeights = [1, 2, 5, 10].filter(
-                  (w) => !setData.weight || Math.abs(w - parseFloat(setData.weight)) >= 2.5
-                );
-                const recentWeights = getExerciseSets(ex.id)
-                  .filter((s) => s.setNumber < setData.setNumber && s.weight)
-                  .map((s) => parseFloat(s.weight))
-                  .filter((v, i, arr) => arr.indexOf(v) === i)
-                  .slice(-2);
+                    // Pesos comuns recomendados
+                    const commonWeights = [0.5, 1, 2, 5, 10].filter(
+                      (w) => !setData.weight || Math.abs(w - parseFloat(setData.weight)) >= 2.5
+                    );
+                    const recentWeights = getExerciseSets(ex.id)
+                      .filter((s) => s.setNumber < setData.setNumber && s.weight)
+                      .map((s) => parseFloat(s.weight))
+                      .filter((v, i, arr) => arr.indexOf(v) === i)
+                      .slice(-2);
 
-                return (
-                  <div key={setData.setNumber}>
-                    <div
-                      className="grid grid-cols-4 gap-2 items-center p-2 rounded-xl transition-all"
-                      style={{
-                        background: setData.completed ? 'rgba(16,185,129,0.1)' : '#0f0f1a',
-                        border: `1px solid ${setData.completed ? 'rgba(16,185,129,0.3)' : '#2a2a4a'}`,
-                      }}>
-                      {/* Número da série */}
-                      <div className="flex items-center justify-center">
-                        <span className="w-7 h-7 rounded-full flex items-center justify-center text-xs font-black"
+                    return (
+                      <div key={setData.setNumber}>
+                        <div
+                          className="flex items-center gap-2 p-3 rounded-xl transition-all"
                           style={{
-                            background: setData.completed ? '#10b981' : `${exColor}20`,
-                            color: setData.completed ? 'white' : exColor,
+                            background: setData.completed
+                              ? 'rgba(16,185,129,0.1)'
+                              : nextSetHighlight === `${setData.exerciseId}-${setData.setNumber}`
+                                ? 'rgba(255,138,31,0.12)'
+                                : '#0f0f1a',
+                            border: `1px solid ${setData.completed
+                              ? 'rgba(16,185,129,0.3)'
+                              : nextSetHighlight === `${setData.exerciseId}-${setData.setNumber}`
+                                ? 'rgba(255,138,31,0.45)'
+                                : '#2a2a4a'}`,
                           }}>
-                          {setData.setNumber}
-                        </span>
-                      </div>
+                          {/* Número da série */}
+                          <span className="w-8 h-8 rounded-full flex items-center justify-center text-xs font-black flex-shrink-0"
+                            style={{
+                              background: setData.completed ? '#10b981' : `${exColor}20`,
+                              color: setData.completed ? 'white' : exColor,
+                            }}>
+                            {setData.setNumber}
+                          </span>
 
-                      {/* Reps */}
-                      <input
-                        type="number"
-                        min={0}
-                        value={setData.reps}
-                        disabled={setData.completed}
-                        onChange={(e) => updateSet(ex.id, setData.setNumber, 'reps', e.target.value)}
-                        className="w-full py-2 rounded-lg text-center text-sm font-bold text-white outline-none"
-                        style={{
-                          background: setData.completed ? 'transparent' : '#1a1a2e',
-                          border: `1px solid ${setData.completed ? 'transparent' : '#2a2a4a'}`,
-                          color: setData.completed ? '#10b981' : 'white',
-                        }} />
-
-                      {/* Peso */}
-                      <div className="relative">
-                        <input
-                          type="number"
-                          min={0}
-                          step={0.5}
-                          value={setData.weight}
-                          disabled={setData.completed}
-                          onChange={(e) => {
-                            updateSet(ex.id, setData.setNumber, 'weight', e.target.value);
-                            setFocusedWeight(`${ex.id}-${setData.setNumber}`);
-                          }}
-                          onFocus={() => setFocusedWeight(`${ex.id}-${setData.setNumber}`)}
-                          onBlur={() => setFocusedWeight('')}
-                          placeholder="—"
-                          className="w-full py-2 pr-6 rounded-lg text-center text-sm font-bold outline-none"
-                          style={{
-                            background: setData.completed ? 'transparent' : '#1a1a2e',
-                            border: `1px solid ${setData.completed ? 'transparent' : '#2a2a4a'}`,
-                            color: setData.completed ? '#10b981' : 'white',
-                          }} />
-                        {setData.weight && !setData.completed && (
-                          <button
-                            onMouseDown={() => updateSet(ex.id, setData.setNumber, 'weight', '')}
-                            className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 rounded hover:opacity-80 transition-opacity"
-                            style={{ color: '#94a3b8' }}
-                            title="Limpar peso">
-                            <XCircle size={16} />
-                          </button>
-                        )}
-                      </div>
-
-                      {/* Botão completar */}
-                      <div className="flex justify-center">
-                        {setData.completed ? (
-                          <button
-                            onClick={() => uncompleteSet(ex.id, setData.setNumber)}
-                            className="w-8 h-8 rounded-full flex items-center justify-center active:scale-90 transition-transform hover:opacity-80"
-                            title="Descompletar série"
-                            style={{ background: 'rgba(16,185,129,0.1)', border: '2px solid #10b981' }}>
-                            <CheckCircle2 size={20} style={{ color: '#10b981' }} />
-                          </button>
-                        ) : (
-                          <button
-                            onClick={() => completeSet(ex.id, setData.setNumber)}
-                            className="w-8 h-8 rounded-full flex items-center justify-center active:scale-90 transition-transform"
-                            style={{ background: `${exColor}20`, border: `2px solid ${exColor}` }}>
-                            <Circle size={14} style={{ color: exColor }} />
-                          </button>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* Quick-select de pesos */}
-                    {focusedWeight === `${ex.id}-${setData.setNumber}` && !setData.completed && (
-                      <div className="mt-2 px-2 space-y-2" onMouseDown={(e) => e.preventDefault()}>
-                        {/* Pesos recentes */}
-                        {recentWeights.length > 0 && (
-                          <div className="flex gap-2 flex-wrap">
-                            <span className="text-xs font-semibold px-2 py-1" style={{ color: '#94a3b8' }}>
-                              Último:
-                            </span>
-                            {recentWeights.map((w) => (
-                              <button
-                                key={w}
-                                onMouseDown={() => {
-                                  addWeightToSet(ex.id, setData.setNumber, w);
-                                }}
-                                className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all active:scale-95"
-                                style={{
-                                  background: setData.weight === w.toString() ? '#ff8a1f' : '#1a1a2e',
-                                  border: `1px solid ${setData.weight === w.toString() ? '#ff8a1f' : '#2a2a4a'}`,
-                                  color: setData.weight === w.toString() ? 'white' : '#94a3b8',
-                                }}>
-                                +{w}kg
-                              </button>
-                            ))}
-                          </div>
-                        )}
-
-                        {/* Pesos comuns */}
-                        <div className="flex gap-2 flex-wrap">
-                          <div className="w-6 h-6 rounded-full flex items-center justify-center"
-                            style={{ background: 'rgba(16,185,129,0.2)', border: '1.5px solid #10b981' }}>
-                            <Plus size={14} style={{ color: '#10b981' }} />
-                          </div>
-                          {commonWeights.slice(0, 4).map((w) => (
-                            <button
-                              key={w}
-                              onMouseDown={() => {
-                                addWeightToSet(ex.id, setData.setNumber, w);
-                              }}
-                              className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all active:scale-95"
+                          {/* Reps */}
+                          <div className="flex-1 min-w-0">
+                            <input
+                              type="number"
+                              min={0}
+                              value={setData.reps}
+                              disabled={setData.completed}
+                              onChange={(e) => updateSet(ex.id, setData.setNumber, 'reps', e.target.value)}
+                              className="w-full py-2 rounded-lg text-center text-sm font-bold outline-none"
                               style={{
-                                background: '#0f0f1a',
-                                border: '1px solid #2a2a4a',
-                                color: '#94a3b8',
-                              }}>
-                              +{w}kg
+                                background: setData.completed ? 'transparent' : '#1a1a2e',
+                                border: `1px solid ${setData.completed ? 'transparent' : '#2a2a4a'}`,
+                                color: setData.completed ? '#10b981' : 'white',
+                              }} />
+                            <span className="block text-center text-[10px] mt-0.5" style={{ color: '#64748b' }}>reps</span>
+                          </div>
+
+                          {/* Peso */}
+                          <div className="flex-1 min-w-0 relative">
+                            <input
+                              type="number"
+                              min={0}
+                              step={0.5}
+                              value={setData.weight}
+                              disabled={setData.completed}
+                              onChange={(e) => {
+                                updateSet(ex.id, setData.setNumber, 'weight', e.target.value);
+                                setFocusedWeight(`${ex.id}-${setData.setNumber}`);
+                              }}
+                              onFocus={() => setFocusedWeight(`${ex.id}-${setData.setNumber}`)}
+                              onBlur={() => setFocusedWeight('')}
+                              placeholder="—"
+                              className="w-full py-2 pr-6 rounded-lg text-center text-sm font-bold outline-none"
+                              style={{
+                                background: setData.completed ? 'transparent' : '#1a1a2e',
+                                border: `1px solid ${setData.completed ? 'transparent' : '#2a2a4a'}`,
+                                color: setData.completed ? '#10b981' : 'white',
+                              }} />
+                            {setData.weight && !setData.completed && (
+                              <button
+                                onMouseDown={() => updateSet(ex.id, setData.setNumber, 'weight', '')}
+                                className="absolute right-1 top-1/2 -translate-y-1/2 p-0.5 rounded hover:opacity-80 transition-opacity"
+                                style={{ color: '#94a3b8' }}
+                                title="Limpar peso">
+                                <XCircle size={14} />
+                              </button>
+                            )}
+                            <span className="block text-center text-[10px] mt-0.5" style={{ color: '#64748b' }}>kg</span>
+                          </div>
+
+                          {/* Play - contagem de reps */}
+                          {!setData.completed && (
+                            <button
+                              onClick={() => startRepCounter(ex.id, setData.setNumber)}
+                              className="w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 active:scale-90 transition-transform"
+                              style={{ background: 'rgba(255,138,31,0.15)', border: '2px solid #ff8a1f' }}
+                              title="Iniciar contagem de reps">
+                              <Play size={16} style={{ color: '#ff8a1f' }} fill="#ff8a1f" />
                             </button>
-                          ))}
+                          )}
+
+                          {/* Botão completar */}
+                          <div className="flex-shrink-0">
+                            {setData.completed ? (
+                              <button
+                                onClick={() => uncompleteSet(ex.id, setData.setNumber)}
+                                className="w-9 h-9 rounded-full flex items-center justify-center active:scale-90 transition-transform hover:opacity-80"
+                                title="Descompletar série"
+                                style={{ background: 'rgba(16,185,129,0.1)', border: '2px solid #10b981' }}>
+                                <CheckCircle2 size={20} style={{ color: '#10b981' }} />
+                              </button>
+                            ) : (
+                              <button
+                                onClick={() => completeSet(ex.id, setData.setNumber)}
+                                className="w-9 h-9 rounded-full flex items-center justify-center active:scale-90 transition-transform"
+                                style={{ background: `${exColor}20`, border: `2px solid ${exColor}` }}>
+                                <Circle size={14} style={{ color: exColor }} />
+                              </button>
+                            )}
+                          </div>
                         </div>
+
+                        {nextSetHighlight === `${setData.exerciseId}-${setData.setNumber}` && !setData.completed && (
+                          <p className="text-[11px] px-2 mt-1" style={{ color: '#fdba74' }}>
+                            Próxima série sugerida
+                          </p>
+                        )}
+
+                        {/* Quick-select de pesos */}
+                        {focusedWeight === `${ex.id}-${setData.setNumber}` && !setData.completed && (
+                          <div className="mt-2 px-2 space-y-2" onMouseDown={(e) => e.preventDefault()}>
+                            {/* Pesos recentes */}
+                            {recentWeights.length > 0 && (
+                              <div className="flex gap-2 flex-wrap">
+                                <span className="text-xs font-semibold px-2 py-1" style={{ color: '#94a3b8' }}>
+                                  Último:
+                                </span>
+                                <button
+                                  onMouseDown={() => {
+                                    const lastWeight = recentWeights[recentWeights.length - 1];
+                                    applyWeightDownFromSet(ex.id, setData.setNumber, lastWeight);
+                                  }}
+                                  className="px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all active:scale-95"
+                                  style={{
+                                    background: 'rgba(255,138,31,0.12)',
+                                    border: '1px solid rgba(255,138,31,0.5)',
+                                    color: '#fdba74',
+                                  }}>
+                                  Atualizar Abaixo
+                                </button>
+                                {recentWeights.map((w) => (
+                                  <button
+                                    key={w}
+                                    onMouseDown={() => {
+                                      replaceWeightForSet(ex.id, setData.setNumber, w);
+                                    }}
+                                    className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all active:scale-95"
+                                    style={{
+                                      background: setData.weight === w.toString() ? '#ff8a1f' : '#1a1a2e',
+                                      border: `1px solid ${setData.weight === w.toString() ? '#ff8a1f' : '#2a2a4a'}`,
+                                      color: setData.weight === w.toString() ? 'white' : '#94a3b8',
+                                    }}>
+                                    {w}kg
+                                  </button>
+                                ))}
+                              </div>
+                            )}
+
+                            {/* Pesos comuns */}
+                            <div className="flex gap-2 flex-wrap">
+                              <div className="w-6 h-6 rounded-full flex items-center justify-center"
+                                style={{ background: 'rgba(16,185,129,0.2)', border: '1.5px solid #10b981' }}>
+                                <Plus size={14} style={{ color: '#10b981' }} />
+                              </div>
+                              {commonWeights.slice(0, 4).map((w) => (
+                                <button
+                                  key={w}
+                                  onMouseDown={() => {
+                                    addWeightToSet(ex.id, setData.setNumber, w);
+                                  }}
+                                  className="px-3 py-1.5 rounded-lg text-xs font-bold transition-all active:scale-95"
+                                  style={{
+                                    background: '#0f0f1a',
+                                    border: '1px solid #2a2a4a',
+                                    color: '#94a3b8',
+                                  }}>
+                                  +{w}kg
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
-                    )}
-                  </div>
-                );
-              })}
+                    );
+                  })}
 
                   {/* Info de descanso */}
                   <div className="flex items-center gap-1.5 mt-2 px-1"
@@ -802,17 +1348,17 @@ export default function ActiveSessionPage() {
               background: progressPct < 30
                 ? 'linear-gradient(135deg, #f59e0b, #d97706)'
                 : progressPct < 60
-                ? 'linear-gradient(135deg, #f97316, #ea580c)'
-                : progressPct < 90
-                ? 'linear-gradient(135deg, #ff8a1f, #ff5a00)'
-                : 'linear-gradient(135deg, #10b981, #059669)'
+                  ? 'linear-gradient(135deg, #f97316, #ea580c)'
+                  : progressPct < 90
+                    ? 'linear-gradient(135deg, #ff8a1f, #ff5a00)'
+                    : 'linear-gradient(135deg, #10b981, #059669)'
             }}>
             {completing ? <Loader2 size={20} className="animate-spin" /> : <Trophy size={20} />}
             {completing ? 'Finalizando...'
               : progressPct < 30 ? `Finalizar (${progressPct}% completo)`
-              : progressPct < 60 ? `Na metade! ${progressPct}%`
-              : progressPct < 90 ? `Quase! ${progressPct}%`
-              : 'Finalizar Treino'}
+                : progressPct < 60 ? `Na metade! ${progressPct}%`
+                  : progressPct < 90 ? `Quase! ${progressPct}%`
+                    : 'Finalizar Treino'}
           </button>
         </div>
       </div>

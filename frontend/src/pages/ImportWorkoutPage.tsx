@@ -12,7 +12,7 @@ interface ParsedExercise {
   name: string;
   muscle_group: string;
   sets: number;
-  reps: number;
+  reps: number | string;
   rest_seconds: number;
   weight_kg?: number;
   notes?: string;
@@ -155,7 +155,7 @@ export default function ImportWorkoutPage() {
             name: "Supino Reto com Halteres",
             muscle_group: "chest",
             sets: 4,
-            reps: 8,
+            reps: "8-10",
             rest_seconds: 120,
             weight_kg: 30,
             notes: "Movimento controlado e amplitude completa"
@@ -446,24 +446,50 @@ export default function ImportWorkoutPage() {
 
                           {/* Séries / Reps / Descanso / Carga */}
                           <div className="grid grid-cols-4 gap-2">
-                            {([
-                              { field: 'sets', label: 'Séries' },
-                              { field: 'reps', label: 'Reps' },
-                              { field: 'rest_seconds', label: 'Desc.(s)' },
-                              { field: 'weight_kg', label: 'Carga(kg)' },
-                            ] as const).map(({ field, label }) => (
-                              <div key={field}>
-                                <label className="block text-xs mb-1 text-center" style={{ color: '#475569' }}>{label}</label>
-                                <input
-                                  type="number"
-                                  min={0}
-                                  value={(ex[field] as number | undefined) ?? ''}
-                                  onChange={(e) => updateExercise(dayIdx, exIdx, field, e.target.value === '' ? 0 : Number(e.target.value))}
-                                  className="w-full px-2 py-1.5 rounded-lg text-sm text-center outline-none text-white"
-                                  style={{ background: '#1a1a2e', border: '1px solid #2a2a4a' }}
-                                />
-                              </div>
-                            ))}
+                            <div>
+                              <label className="block text-xs mb-1 text-center" style={{ color: '#475569' }}>Séries</label>
+                              <input
+                                type="number"
+                                min={0}
+                                value={ex.sets ?? ''}
+                                onChange={(e) => updateExercise(dayIdx, exIdx, 'sets', e.target.value === '' ? 0 : Number(e.target.value))}
+                                className="w-full px-2 py-1.5 rounded-lg text-sm text-center outline-none text-white"
+                                style={{ background: '#1a1a2e', border: '1px solid #2a2a4a' }}
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs mb-1 text-center" style={{ color: '#475569' }}>Reps</label>
+                              <input
+                                type="text"
+                                value={ex.reps ?? ''}
+                                onChange={(e) => updateExercise(dayIdx, exIdx, 'reps', e.target.value)}
+                                placeholder="10 ou 8-10"
+                                className="w-full px-2 py-1.5 rounded-lg text-sm text-center outline-none text-white"
+                                style={{ background: '#1a1a2e', border: '1px solid #2a2a4a' }}
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs mb-1 text-center" style={{ color: '#475569' }}>Desc.(s)</label>
+                              <input
+                                type="number"
+                                min={0}
+                                value={ex.rest_seconds ?? ''}
+                                onChange={(e) => updateExercise(dayIdx, exIdx, 'rest_seconds', e.target.value === '' ? 0 : Number(e.target.value))}
+                                className="w-full px-2 py-1.5 rounded-lg text-sm text-center outline-none text-white"
+                                style={{ background: '#1a1a2e', border: '1px solid #2a2a4a' }}
+                              />
+                            </div>
+                            <div>
+                              <label className="block text-xs mb-1 text-center" style={{ color: '#475569' }}>Carga(kg)</label>
+                              <input
+                                type="number"
+                                min={0}
+                                value={ex.weight_kg ?? ''}
+                                onChange={(e) => updateExercise(dayIdx, exIdx, 'weight_kg', e.target.value === '' ? 0 : Number(e.target.value))}
+                                className="w-full px-2 py-1.5 rounded-lg text-sm text-center outline-none text-white"
+                                style={{ background: '#1a1a2e', border: '1px solid #2a2a4a' }}
+                              />
+                            </div>
                           </div>
                         </div>
                       ))}

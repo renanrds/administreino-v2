@@ -4,12 +4,34 @@ from .models import Workout, Exercise, WorkoutSession, ExerciseLog
 
 class ExerciseSerializer(serializers.ModelSerializer):
     muscle_group_display = serializers.CharField(source='get_muscle_group_display', read_only=True)
+    reps_display = serializers.SerializerMethodField()
+
+    def get_reps_display(self, obj):
+        if obj.min_reps and obj.max_reps and obj.min_reps != obj.max_reps:
+            return f"{obj.min_reps}-{obj.max_reps}"
+        return str(obj.reps)
+
+    def validate(self, attrs):
+        min_reps = attrs.get('min_reps')
+        max_reps = attrs.get('max_reps')
+        reps = attrs.get('reps')
+
+        if min_reps is not None and max_reps is not None:
+            if min_reps > max_reps:
+                raise serializers.ValidationError({'min_reps': 'min_reps nao pode ser maior que max_reps.'})
+            attrs['reps'] = max_reps
+        elif reps is not None:
+            attrs['min_reps'] = reps
+            attrs['max_reps'] = reps
+
+        return attrs
 
     class Meta:
         model = Exercise
         fields = [
             'id', 'name', 'muscle_group', 'muscle_group_display',
-            'sets', 'reps', 'rest_seconds', 'weight_kg', 'notes', 'order', 'created_at'
+            'sets', 'reps', 'min_reps', 'max_reps', 'reps_display',
+            'rest_seconds', 'weight_kg', 'notes', 'order', 'created_at'
         ]
         read_only_fields = ['id', 'created_at']
 
@@ -57,7 +79,8 @@ class ExerciseLogSerializer(serializers.ModelSerializer):
         model = ExerciseLog
         fields = [
             'id', 'exercise', 'exercise_name', 'exercise_muscle_group',
-            'set_number', 'planned_reps', 'planned_weight_kg', 'planned_rest_seconds',
+            'set_number', 'planned_reps', 'planned_min_reps', 'planned_max_reps',
+            'planned_weight_kg', 'planned_rest_seconds',
             'reps_done', 'weight_kg', 'rest_seconds_taken', 'execution_seconds',
             'rpe', 'volume_kg', 'is_completed', 'notes', 'logged_at'
         ]

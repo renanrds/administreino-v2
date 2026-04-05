@@ -14,6 +14,12 @@ export default function ProfilePage() {
     bio: '',
     weight: '',
     height: '',
+    gender: user?.gender || 'prefer_not_to_say',
+    experience_level: user?.experience_level || 'intermediate',
+    age: user?.age?.toString() || '',
+    primary_goal: user?.primary_goal || '',
+    weekly_training_days: user?.weekly_training_days?.toString() || '',
+    gym_app_preference: user?.gym_app_preference || 'none',
   });
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -27,6 +33,12 @@ export default function ProfilePage() {
         bio: r.data.bio || '',
         weight: r.data.weight?.toString() || '',
         height: r.data.height?.toString() || '',
+        gender: r.data.gender || 'prefer_not_to_say',
+        experience_level: r.data.experience_level || 'intermediate',
+        age: r.data.age?.toString() || '',
+        primary_goal: r.data.primary_goal || '',
+        weekly_training_days: r.data.weekly_training_days?.toString() || '',
+        gym_app_preference: r.data.gym_app_preference || 'none',
       });
     });
   }, []);
@@ -39,6 +51,8 @@ export default function ProfilePage() {
         ...form,
         weight: form.weight || null,
         height: form.height || null,
+        age: form.age || null,
+        weekly_training_days: form.weekly_training_days || null,
       });
       updateUser(data);
       setSuccess(true);
@@ -144,6 +158,73 @@ export default function ProfilePage() {
               onChange={(e) => setForm({ ...form, height: e.target.value })}
               placeholder="Ex: 175" className={inputClass} style={inputStyle} />
           </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-semibold mb-1.5 uppercase tracking-wider" style={{ color: '#94a3b8' }}>
+              Gênero
+            </label>
+            <select value={form.gender} onChange={(e) => setForm({ ...form, gender: e.target.value })}
+              className={inputClass} style={inputStyle}>
+              <option value="prefer_not_to_say">Prefiro não informar</option>
+              <option value="male">Masculino</option>
+              <option value="female">Feminino</option>
+              <option value="non_binary">Não-binário</option>
+              <option value="other">Outro</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold mb-1.5 uppercase tracking-wider" style={{ color: '#94a3b8' }}>
+              Nível
+            </label>
+            <select value={form.experience_level} onChange={(e) => setForm({ ...form, experience_level: e.target.value })}
+              className={inputClass} style={inputStyle}>
+              <option value="beginner">Iniciante</option>
+              <option value="intermediate">Intermediário</option>
+              <option value="advanced">Avançado</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-semibold mb-1.5 uppercase tracking-wider" style={{ color: '#94a3b8' }}>
+              Idade
+            </label>
+            <input type="number" min={12} max={100} value={form.age}
+              onChange={(e) => setForm({ ...form, age: e.target.value })}
+              placeholder="Ex: 28" className={inputClass} style={inputStyle} />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold mb-1.5 uppercase tracking-wider" style={{ color: '#94a3b8' }}>
+              Dias/semana
+            </label>
+            <input type="number" min={1} max={7} value={form.weekly_training_days}
+              onChange={(e) => setForm({ ...form, weekly_training_days: e.target.value })}
+              placeholder="Ex: 4" className={inputClass} style={inputStyle} />
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-xs font-semibold mb-1.5 uppercase tracking-wider" style={{ color: '#94a3b8' }}>
+            Objetivo principal
+          </label>
+          <input value={form.primary_goal} onChange={(e) => setForm({ ...form, primary_goal: e.target.value })}
+            placeholder="Ex: hipertrofia com foco em posterior" className={inputClass} style={inputStyle} />
+        </div>
+
+        <div>
+          <label className="block text-xs font-semibold mb-1.5 uppercase tracking-wider" style={{ color: '#94a3b8' }}>
+            App de academia
+          </label>
+          <select value={form.gym_app_preference} onChange={(e) => setForm({ ...form, gym_app_preference: e.target.value })}
+            className={inputClass} style={inputStyle}>
+            <option value="none">Nenhum</option>
+            <option value="wellhub">Wellhub</option>
+            <option value="totalpass">Totalpass</option>
+            <option value="both">Wellhub + Totalpass</option>
+          </select>
         </div>
       </div>
 

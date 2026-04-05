@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft, Clock, CheckCircle2, XCircle, Dumbbell,
-  Weight, RotateCcw, TrendingUp, Calendar
+  Weight, RotateCcw, TrendingUp, Calendar, Trash2
 } from 'lucide-react';
 import api from '../services/api';
 import type { WorkoutSession, ExerciseLog } from '../types';
@@ -30,10 +30,28 @@ export default function SessionDetailPage() {
   const navigate = useNavigate();
   const [session, setSession] = useState<WorkoutSession | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     api.get(`/sessions/${id}/`).then((r) => setSession(r.data)).finally(() => setLoading(false));
   }, [id]);
+
+  const confirmDeleteSession = async () => {
+    if (!session) return;
+
+    try {
+      setDeleting(true);
+      await api.delete(`/sessions/${session.id}/`);
+      navigate('/history');
+    } catch (error) {
+      console.error('Erro ao excluir sessão:', error);
+      alert('Não foi possível excluir este treino.');
+    } finally {
+      setDeleting(false);
+      setShowDeleteModal(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -57,19 +75,29 @@ export default function SessionDetailPage() {
   return (
     <div className="px-4 py-5 animate-fade-in">
       {/* Header */}
-      <div className="flex items-center gap-3 mb-5">
-        <button onClick={() => navigate(-1)}
-          className="p-2 rounded-xl" style={{ background: '#1a1a2e', color: '#94a3b8', border: '1px solid #2a2a4a' }}>
-          <ArrowLeft size={20} />
-        </button>
-        <div>
-          <h1 className="text-xl font-black text-white">{session.workout_name}</h1>
-          <p className="text-xs" style={{ color: '#94a3b8' }}>
-            {new Date(session.started_at).toLocaleDateString('pt-BR', {
-              weekday: 'long', day: '2-digit', month: 'long', year: 'numeric'
-            })}
-          </p>
+      <div className="flex items-start justify-between gap-3 mb-5">
+        <div className="flex items-center gap-3">
+          <button onClick={() => navigate(-1)}
+            className="p-2 rounded-xl" style={{ background: '#1a1a2e', color: '#94a3b8', border: '1px solid #2a2a4a' }}>
+            <ArrowLeft size={20} />
+          </button>
+          <div>
+            <h1 className="text-xl font-black text-white">{session.workout_name}</h1>
+            <p className="text-xs" style={{ color: '#94a3b8' }}>
+              {new Date(session.started_at).toLocaleDateString('pt-BR', {
+                weekday: 'long', day: '2-digit', month: 'long', year: 'numeric'
+              })}
+            </p>
+          </div>
         </div>
+        <button
+          onClick={() => setShowDeleteModal(true)}
+          className="p-2 rounded-xl"
+          style={{ background: 'rgba(239,68,68,0.12)', color: '#f87171', border: '1px solid rgba(239,68,68,0.3)' }}
+          title="Excluir treino"
+        >
+          <Trash2 size={18} />
+        </button>
       </div>
 
       {/* Status badge */}
@@ -175,6 +203,40 @@ export default function SessionDetailPage() {
         <div className="text-center py-8">
           <Dumbbell size={40} className="mx-auto mb-2 opacity-20 text-white" />
           <p className="text-sm" style={{ color: '#94a3b8' }}>Nenhuma série registrada nesta sessão.</p>
+        </div>
+      )}
+
+      {showDeleteModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4"
+          style={{ background: 'rgba(15,15,26,0.97)', backdropFilter: 'blur(20px)' }}>
+          <div className="w-full max-w-sm rounded-3xl p-6"
+            style={{ background: '#1a1a2e', border: '1px solid #2a2a4a', boxShadow: '0 20px 60px rgba(0,0,0,0.5)' }}>
+            <h2 className="text-2xl font-black text-white text-center mb-2">Excluir treino?</h2>
+            <p className="text-sm text-center mb-6" style={{ color: '#94a3b8' }}>
+              Esta ação removerá <span className="text-white font-bold">{session.workout_name}</span> do histórico.
+            </p>
+
+            <div className="flex gap-3">
+              <button
+                onClick={() => !deleting && setShowDeleteModal(false)}
+                disabled={deleting}
+                className="flex-1 py-3 rounded-xl font-bold transition-all active:scale-95"
+                style={{
+                  background: '#2a2a4a',
+                  color: '#94a3b8',
+                  border: '1px solid #3a3a5a'
+                }}>
+                Cancelar
+              </button>
+              <button
+                onClick={confirmDeleteSession}
+                disabled={deleting}
+                className="flex-1 py-3 rounded-xl font-bold text-white active:scale-95 transition-all disabled:opacity-60"
+                style={{ background: 'linear-gradient(135deg, #ef4444, #dc2626)' }}>
+                {deleting ? 'Excluindo...' : 'Excluir'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -104,7 +104,7 @@ interface ExerciseForm {
   name: string;
   muscle_group: MuscleGroup;
   sets: number;
-  reps: number;
+  reps_input: string;
   rest_seconds: number;
   weight_kg: string;
   notes: string;
@@ -112,9 +112,30 @@ interface ExerciseForm {
 }
 
 const defaultExercise = (): ExerciseForm => ({
-  name: '', muscle_group: 'chest', sets: 3, reps: 12,
+  name: '', muscle_group: 'chest', sets: 3, reps_input: '12',
   rest_seconds: 60, weight_kg: '', notes: '', order: 0
 });
+
+const parseRepsInput = (rawValue: string): { reps: number; min_reps: number; max_reps: number } | null => {
+  const normalized = rawValue.trim().replace(/\s+/g, '');
+  if (!normalized) return null;
+
+  if (/^\d+$/.test(normalized)) {
+    const value = Number(normalized);
+    return { reps: value, min_reps: value, max_reps: value };
+  }
+
+  const rangeMatch = normalized.match(/^(\d+)-(\d+)$/);
+  if (rangeMatch) {
+    const a = Number(rangeMatch[1]);
+    const b = Number(rangeMatch[2]);
+    const min = Math.min(a, b);
+    const max = Math.max(a, b);
+    return { reps: max, min_reps: min, max_reps: max };
+  }
+
+  return null;
+};
 
 export default function WorkoutFormPage() {
   const { id } = useParams<{ id: string }>();
@@ -141,7 +162,9 @@ export default function WorkoutFormPage() {
         setWorkoutType(w.workout_type);
         setExercises(w.exercises.map((e) => ({
           id: e.id, name: e.name, muscle_group: e.muscle_group,
-          sets: e.sets, reps: e.reps, rest_seconds: e.rest_seconds,
+          sets: e.sets,
+          reps_input: e.reps_display || ((e.min_reps && e.max_reps && e.min_reps !== e.max_reps) ? `${e.min_reps}-${e.max_reps}` : `${e.reps}`),
+          rest_seconds: e.rest_seconds,
           weight_kg: e.weight_kg?.toString() || '', notes: e.notes || '',
           order: e.order
         })));
@@ -188,6 +211,12 @@ export default function WorkoutFormPage() {
     if (!name.trim()) return alert('Informe o nome do treino.');
     if (exercises.some((e) => !e.name.trim())) return alert('Todos os exercícios precisam de nome.');
 
+    for (const ex of exercises) {
+      if (!parseRepsInput(ex.reps_input)) {
+        return alert(`Formato de reps inválido em "${ex.name || 'exercício'}". Use "10" ou "8-10".`);
+      }
+    }
+
     setSaving(true);
     try {
       let workoutId = id;
@@ -201,11 +230,18 @@ export default function WorkoutFormPage() {
 
       // Salvar exercícios
       for (let i = 0; i < exercises.length; i++) {
-        const ex = { ...exercises[i], order: i, weight_kg: exercises[i].weight_kg || null };
-        if (ex.id) {
-          await api.patch(`/exercises/${ex.id}/`, ex);
+        const parsedReps = parseRepsInput(exercises[i].reps_input)!;
+        const exPayload = {
+          ...exercises[i],
+          ...parsedReps,
+          order: i,
+          weight_kg: exercises[i].weight_kg || null,
+        };
+
+        if (exercises[i].id) {
+          await api.patch(`/exercises/${exercises[i].id}/`, exPayload);
         } else {
-          await api.post(`/workouts/${workoutId}/exercises/`, ex);
+          await api.post(`/workouts/${workoutId}/exercises/`, exPayload);
         }
       }
 
@@ -386,7 +422,6 @@ export default function WorkoutFormPage() {
                 <div className="grid grid-cols-3 gap-2">
                   {[
                     { field: 'sets', label: 'Séries', icon: <RotateCcw size={12} />, min: 1 },
-                    { field: 'reps', label: 'Reps', icon: <Dumbbell size={12} />, min: 1 },
                     { field: 'rest_seconds', label: 'Descanso(s)', icon: <Timer size={12} />, min: 0 },
                   ].map(({ field, label, icon, min }) => (
                     <div key={field}>
@@ -403,6 +438,20 @@ export default function WorkoutFormPage() {
                         style={{ background: '#0f0f1a', border: '1px solid #2a2a4a' }} />
                     </div>
                   ))}
+
+                  <div>
+                    <label className="flex items-center gap-1 text-xs font-semibold mb-1 uppercase tracking-wider"
+                      style={{ color: '#94a3b8' }}>
+                      <Dumbbell size={12} /> Reps
+                    </label>
+                    <input
+                      type="text"
+                      value={ex.reps_input}
+                      onChange={(e) => updateExercise(idx, 'reps_input', e.target.value)}
+                      placeholder="10 ou 8-10"
+                      className="w-full px-3 py-2.5 rounded-xl text-white outline-none text-sm text-center font-bold"
+                      style={{ background: '#0f0f1a', border: '1px solid #2a2a4a' }} />
+                  </div>
                 </div>
 
                 {/* Carga */}

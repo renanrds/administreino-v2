@@ -6,6 +6,9 @@ from django.db.models import Avg
 from django.db import transaction
 from django.utils import timezone
 from datetime import timedelta
+import re
+import urllib.request
+import urllib.parse
 
 from .models import Workout, Exercise, WorkoutSession, ExerciseLog
 from .models import MuscleGroup, WorkoutType
@@ -13,6 +16,62 @@ from .serializers import (
     WorkoutSerializer, WorkoutCreateSerializer, ExerciseSerializer,
     WorkoutSessionSerializer, WorkoutSessionListSerializer, ExerciseLogSerializer,
 )
+
+
+PROGRAM_DAY_SUFFIX_PATTERN = re.compile(r"\s*-\s*DIA\s+([A-Z0-9]+)\s*$", re.IGNORECASE)
+PROGRAM_TREINO_SUFFIX_PATTERN = re.compile(r"\s*-\s*TREINO\s+([A-Z0-9]+)\s*$", re.IGNORECASE)
+
+
+def parse_sequence_order(workout_name):
+    upper = workout_name.upper()
+    for pattern in [
+        re.compile(r"DIA\s*([A-Z])"),
+        re.compile(r"TREINO\s*([A-Z])"),
+    ]:
+        match = pattern.search(upper)
+        if match:
+            code = ord(match.group(1))
+            if 65 <= code <= 90:
+                return code - 64
+
+    single_letter = re.search(r"\b([A-F])\b", upper)
+    if single_letter:
+        return ord(single_letter.group(1)) - 64
+
+    numeric = re.search(r"\b(\d{1,2})\b", upper)
+    if numeric:
+        return int(numeric.group(1))
+
+    return 999
+
+
+def parse_program_base(workout_name):
+    for pattern in [PROGRAM_DAY_SUFFIX_PATTERN, PROGRAM_TREINO_SUFFIX_PATTERN]:
+        match = pattern.search(workout_name)
+        if match:
+            return workout_name[:match.start()].strip().lower()
+    return workout_name.strip().lower()
+
+
+def parse_reps_input(raw_value):
+    if isinstance(raw_value, int):
+        return raw_value, raw_value, raw_value
+
+    if isinstance(raw_value, str):
+        text = raw_value.strip().replace(' ', '')
+        if text.isdigit():
+            value = int(text)
+            return value, value, value
+
+        range_match = re.match(r"^(\d+)-(\d+)$", text)
+        if range_match:
+            min_reps = int(range_match.group(1))
+            max_reps = int(range_match.group(2))
+            if min_reps > max_reps:
+                min_reps, max_reps = max_reps, min_reps
+            return max_reps, min_reps, max_reps
+
+    raise ValueError('Formato de reps invalido. Use numero (10) ou intervalo (8-10).')
 
 
 class WorkoutListCreateView(generics.ListCreateAPIView):
@@ -94,12 +153,18 @@ class WorkoutSessionListCreateView(generics.ListCreateAPIView):
         return super().create(request, *args, **kwargs)
 
 
-class WorkoutSessionDetailView(generics.RetrieveUpdateAPIView):
+class WorkoutSessionDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = WorkoutSessionSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
         return WorkoutSession.objects.filter(user=self.request.user)
+
+    def destroy(self, request, *args, **kwargs):
+        session = self.get_object()
+        if session.status == WorkoutSession.Status.IN_PROGRESS:
+            return Response({'error': 'Nao e possivel excluir uma sessao em andamento.'}, status=status.HTTP_400_BAD_REQUEST)
+        return super().destroy(request, *args, **kwargs)
 
 
 class FinishSessionView(APIView):
@@ -224,6 +289,84 @@ class WorkoutHistoryView(APIView):
         return Response(data)
 
 
+class YouTubeSearchView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        query = request.query_params.get('q', '').strip()
+        if not query:
+            return Response({'error': 'Parâmetro q é obrigatório'}, status=status.HTTP_400_BAD_REQUEST)
+
+        search_query = urllib.parse.quote_plus(query + ' como fazer exercício')
+        url = f'https://www.youtube.com/results?search_query={search_query}'
+
+        try:
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0', 'Accept-Language': 'pt-BR,pt;q=0.9'})
+            with urllib.request.urlopen(req, timeout=5) as resp:
+                html = resp.read().decode('utf-8', errors='ignore')
+            match = re.search(r'"videoId":"([a-zA-Z0-9_-]{11})"', html)
+            if match:
+                return Response({'video_id': match.group(1)})
+            return Response({'video_id': None})
+        except Exception:
+            return Response({'video_id': None})
+
+
+class RecommendedWorkoutView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        workouts = list(Workout.objects.filter(user=request.user, is_active=True))
+        if not workouts:
+            return Response({'next_workout_id': None})
+
+        latest_completed = WorkoutSession.objects.filter(
+            user=request.user,
+            status=WorkoutSession.Status.COMPLETED,
+        ).order_by('-finished_at', '-started_at').first()
+
+        if not latest_completed:
+            first_workout = sorted(workouts, key=lambda w: (parse_sequence_order(w.name), w.name.lower()))[0]
+            return Response({
+                'next_workout_id': first_workout.id,
+                'active_program_name': parse_program_base(first_workout.name),
+                'last_workout_name': None,
+                'reason': 'Sem historico concluido. Primeiro treino da sequencia sugerido.',
+            })
+
+        last_workout = latest_completed.workout
+        last_program_base = parse_program_base(last_workout.name)
+
+        same_program = [
+            workout for workout in workouts
+            if parse_program_base(workout.name) == last_program_base
+        ]
+
+        if not same_program:
+            same_program = [
+                workout for workout in workouts
+                if workout.workout_type == latest_completed.workout_type_snapshot
+            ]
+
+        if not same_program:
+            same_program = workouts
+
+        same_program.sort(key=lambda workout: (parse_sequence_order(workout.name), workout.name.lower()))
+
+        last_index = next((index for index, workout in enumerate(same_program) if workout.id == last_workout.id), -1)
+        if last_index >= 0:
+            next_workout = same_program[(last_index + 1) % len(same_program)]
+        else:
+            next_workout = same_program[0]
+
+        return Response({
+            'next_workout_id': next_workout.id,
+            'active_program_name': last_program_base,
+            'last_workout_name': latest_completed.workout_name_snapshot or last_workout.name,
+            'reason': 'Sequencia mantida no mesmo programa com avanco para o proximo dia.',
+        })
+
+
 class ImportWorkoutFromJSONView(APIView):
     """Endpoint para importar um treino gerado por IA em formato JSON."""
     permission_classes = [permissions.IsAuthenticated]
@@ -330,12 +473,22 @@ class ImportWorkoutFromJSONView(APIView):
                                 status=status.HTTP_400_BAD_REQUEST
                             )
 
+                        try:
+                            reps, min_reps, max_reps = parse_reps_input(exercise_data.get('reps', 10))
+                        except ValueError as exc:
+                            return Response(
+                                {'error': f'Exercicio "{exercise_data["name"]}" do dia "{day_label}": {str(exc)}'},
+                                status=status.HTTP_400_BAD_REQUEST
+                            )
+
                         Exercise.objects.create(
                             workout=workout,
                             name=exercise_data['name'],
                             muscle_group=muscle_group,
                             sets=exercise_data.get('sets', 3),
-                            reps=exercise_data.get('reps', 10),
+                            reps=reps,
+                            min_reps=min_reps,
+                            max_reps=max_reps,
                             rest_seconds=exercise_data.get('rest_seconds', 60),
                             weight_kg=exercise_data.get('weight_kg'),
                             notes=exercise_data.get('notes', ''),

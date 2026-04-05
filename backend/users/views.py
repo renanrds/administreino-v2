@@ -82,12 +82,43 @@ class GymLocationViewSet(viewsets.ModelViewSet):
         )
 
     @action(detail=False, methods=['post'], permission_classes=[permissions.IsAuthenticated])
+    def set_gym_apps(self, request):
+        preference = request.data.get('gym_app_preference', User.GymAppPreference.NONE)
+        valid_values = {choice[0] for choice in User.GymAppPreference.choices}
+        if preference not in valid_values:
+            return Response(
+                {'error': f'gym_app_preference deve ser um de: {", ".join(sorted(valid_values))}'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        request.user.gym_app_preference = preference
+        request.user.wellhub_enabled = preference in {User.GymAppPreference.WELLHUB, User.GymAppPreference.BOTH}
+        request.user.save(update_fields=['gym_app_preference', 'wellhub_enabled'])
+
+        return Response(
+            {
+                'message': 'Preferencia de app de academia atualizada com sucesso.',
+                'gym_app_preference': request.user.gym_app_preference,
+                'wellhub_enabled': request.user.wellhub_enabled,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+    @action(detail=False, methods=['post'], permission_classes=[permissions.IsAuthenticated])
     def enable_wellhub(self, request):
         """Ativa a integração com Wellhub para o usuário."""
         request.user.wellhub_enabled = True
-        request.user.save()
+        if request.user.gym_app_preference == User.GymAppPreference.NONE:
+            request.user.gym_app_preference = User.GymAppPreference.WELLHUB
+        elif request.user.gym_app_preference == User.GymAppPreference.TOTALPASS:
+            request.user.gym_app_preference = User.GymAppPreference.BOTH
+        request.user.save(update_fields=['wellhub_enabled', 'gym_app_preference'])
         return Response(
-            {'message': 'Wellhub ativado com sucesso'},
+            {
+                'message': 'Wellhub ativado com sucesso',
+                'gym_app_preference': request.user.gym_app_preference,
+                'wellhub_enabled': request.user.wellhub_enabled,
+            },
             status=status.HTTP_200_OK
         )
 
@@ -95,8 +126,16 @@ class GymLocationViewSet(viewsets.ModelViewSet):
     def disable_wellhub(self, request):
         """Desativa a integração com Wellhub para o usuário."""
         request.user.wellhub_enabled = False
-        request.user.save()
+        if request.user.gym_app_preference == User.GymAppPreference.BOTH:
+            request.user.gym_app_preference = User.GymAppPreference.TOTALPASS
+        elif request.user.gym_app_preference == User.GymAppPreference.WELLHUB:
+            request.user.gym_app_preference = User.GymAppPreference.NONE
+        request.user.save(update_fields=['wellhub_enabled', 'gym_app_preference'])
         return Response(
-            {'message': 'Wellhub desativado'},
+            {
+                'message': 'Wellhub desativado',
+                'gym_app_preference': request.user.gym_app_preference,
+                'wellhub_enabled': request.user.wellhub_enabled,
+            },
             status=status.HTTP_200_OK
         )
