@@ -1,0 +1,84 @@
+name: Deploy Production
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: production-deploy
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Deploy to EC2
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy over SSH
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.PROD_HOST }}
+          username: ${{ secrets.PROD_USER }}
+          key: ${{ secrets.PROD_SSH_KEY }}
+          script_stop: true
+          command_timeout: 30m
+          script: |
+            set -eu
+
+            REPO_DIR="${{ vars.PROD_REPO_DIR }}"
+            if [ -z "$REPO_DIR" ]; then
+              REPO_DIR="/home/ubuntu/administreino-v2"
+            fi
+
+            cd "$REPO_DIR"
+
+            if [ ! -f .env.prod ]; then
+              echo "ERRO: .env.prod não encontrado em $REPO_DIR"
+              exit 1
+            fi
+
+            echo "[1/7] Atualizando código"
+            git fetch origin main
+            git checkout main
+            git reset --hard origin/main
+
+            echo "[2/7] Subindo banco"
+            docker compose --env-file .env.prod -f docker-compose.prod.yml up -d db
+            sleep 8
+
+            echo "[3/7] Backup pre-deploy (best effort)"
+            mkdir -p backups
+            TS="$(date +%Y%m%d_%H%M%S)"
+            docker compose --env-file .env.prod -f docker-compose.prod.yml exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --no-owner --no-privileges --encoding=UTF8' > "backups/pre_deploy_${TS}.sql" || echo "Aviso: falha ao gerar backup pre-deploy"
+
+            echo "[4/7] Build imagens"
+            docker compose --env-file .env.prod -f docker-compose.prod.yml build backend nginx
+
+            echo "[5/7] Recriando backend e nginx"
+            docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --force-recreate backend nginx
+
+            echo "[6/7] Status dos serviços"
+            docker compose --env-file .env.prod -f docker-compose.prod.yml ps
+
+            echo "[7/7] Health check"
+            ATTEMPTS=20
+            i=1
+            while [ "$i" -le "$ATTEMPTS" ]; do
+              if curl -fsS "http://localhost/api/docs/" >/dev/null 2>&1; then
+                echo "Health check OK"
+                exit 0
+              fi
+              echo "Aguardando aplicação... tentativa $i/$ATTEMPTS"
+              i=$((i+1))
+              sleep 3
+            done
+
+            echo "ERRO: health check falhou após deploy"
+            docker compose --env-file .env.prod -f docker-compose.prod.yml logs --tail=120 backend nginx
+            exit 1
