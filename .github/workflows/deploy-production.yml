@@ -60,8 +60,15 @@ jobs:
 
             echo "[3/9] Validando certificados"
             CERT_DIR="nginx/certbot/conf/live/${DOMAIN}"
-            if [ ! -f "${CERT_DIR}/fullchain.pem" ] || [ ! -f "${CERT_DIR}/privkey.pem" ]; then
-              echo "ERRO: certificado não encontrado para ${DOMAIN} em ${CERT_DIR}"
+            ALT_CERT_DIR="/etc/letsencrypt/live/${DOMAIN}"
+
+            if sudo test -f "${CERT_DIR}/fullchain.pem" && sudo test -f "${CERT_DIR}/privkey.pem"; then
+              echo "Certificado encontrado em ${CERT_DIR}"
+            elif sudo test -f "${ALT_CERT_DIR}/fullchain.pem" && sudo test -f "${ALT_CERT_DIR}/privkey.pem"; then
+              echo "Certificado encontrado em ${ALT_CERT_DIR}"
+            else
+              echo "ERRO: certificado não encontrado para ${DOMAIN}."
+              echo "Verificados: ${CERT_DIR} e ${ALT_CERT_DIR}"
               echo "Execute na EC2: make init-ssl DOMAIN=${DOMAIN} EMAIL=<seu_email>"
               exit 1
             fi
