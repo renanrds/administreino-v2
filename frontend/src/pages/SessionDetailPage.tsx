@@ -2,10 +2,10 @@ import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft, Clock, CheckCircle2, XCircle, Dumbbell,
-  Weight, RotateCcw, TrendingUp, Calendar, Trash2
+  Weight, RotateCcw, TrendingUp, Trash2
 } from 'lucide-react';
 import api from '../services/api';
-import type { WorkoutSession, ExerciseLog } from '../types';
+import type { WorkoutSession, ExerciseLog, MuscleGroup } from '../types';
 import { MUSCLE_GROUP_COLORS } from '../types';
 
 function formatDuration(seconds?: number) {
@@ -136,7 +136,8 @@ export default function SessionDetailPage() {
       <h2 className="font-bold text-white mb-3">Exercícios Realizados</h2>
       <div className="space-y-3">
         {Object.entries(grouped).map(([exName, logs]) => {
-          const color = MUSCLE_GROUP_COLORS[logs[0]?.exercise_muscle_group as any] || '#ff8a1f';
+          const muscleGroup = logs[0]?.exercise_muscle_group as MuscleGroup | undefined;
+          const color = muscleGroup ? (MUSCLE_GROUP_COLORS[muscleGroup] || '#ff8a1f') : '#ff8a1f';
           const totalExVolume = logs.reduce((acc, l) => acc + (l.reps_done * Number(l.weight_kg || 0)), 0);
           const maxWeight = Math.max(...logs.map((l) => Number(l.weight_kg || 0)));
 

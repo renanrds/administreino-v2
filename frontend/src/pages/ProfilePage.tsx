@@ -1,25 +1,41 @@
 import { useEffect, useState } from 'react';
-import { User, Mail, Save, Loader2, LogOut, Weight, Ruler } from 'lucide-react';
+import { User, Save, Loader2, LogOut, Weight, Ruler } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import api from '../services/api';
 import { useAuthStore } from '../store/authStore';
+import type { User as UserType } from '../types';
+
+type ProfileForm = {
+  first_name: string;
+  last_name: string;
+  username: string;
+  bio: string;
+  weight: string;
+  height: string;
+  gender: Exclude<NonNullable<UserType['gender']>, ''>;
+  experience_level: NonNullable<UserType['experience_level']>;
+  age: string;
+  primary_goal: string;
+  weekly_training_days: string;
+  gym_app_preference: NonNullable<UserType['gym_app_preference']>;
+};
 
 export default function ProfilePage() {
   const { user, logout, updateUser } = useAuthStore();
   const navigate = useNavigate();
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<ProfileForm>({
     first_name: user?.first_name || '',
     last_name: user?.last_name || '',
     username: user?.username || '',
     bio: '',
     weight: '',
     height: '',
-    gender: user?.gender || 'prefer_not_to_say',
-    experience_level: user?.experience_level || 'intermediate',
+    gender: (user?.gender || 'prefer_not_to_say') as ProfileForm['gender'],
+    experience_level: (user?.experience_level || 'intermediate') as ProfileForm['experience_level'],
     age: user?.age?.toString() || '',
     primary_goal: user?.primary_goal || '',
     weekly_training_days: user?.weekly_training_days?.toString() || '',
-    gym_app_preference: user?.gym_app_preference || 'none',
+    gym_app_preference: (user?.gym_app_preference || 'none') as ProfileForm['gym_app_preference'],
   });
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -38,7 +54,7 @@ export default function ProfilePage() {
         age: r.data.age?.toString() || '',
         primary_goal: r.data.primary_goal || '',
         weekly_training_days: r.data.weekly_training_days?.toString() || '',
-        gym_app_preference: r.data.gym_app_preference || 'none',
+        gym_app_preference: (r.data.gym_app_preference || 'none') as ProfileForm['gym_app_preference'],
       });
     });
   }, []);
@@ -165,7 +181,7 @@ export default function ProfilePage() {
             <label className="block text-xs font-semibold mb-1.5 uppercase tracking-wider" style={{ color: '#94a3b8' }}>
               Gênero
             </label>
-            <select value={form.gender} onChange={(e) => setForm({ ...form, gender: e.target.value })}
+            <select value={form.gender} onChange={(e) => setForm({ ...form, gender: e.target.value as ProfileForm['gender'] })}
               className={inputClass} style={inputStyle}>
               <option value="prefer_not_to_say">Prefiro não informar</option>
               <option value="male">Masculino</option>
@@ -178,7 +194,7 @@ export default function ProfilePage() {
             <label className="block text-xs font-semibold mb-1.5 uppercase tracking-wider" style={{ color: '#94a3b8' }}>
               Nível
             </label>
-            <select value={form.experience_level} onChange={(e) => setForm({ ...form, experience_level: e.target.value })}
+            <select value={form.experience_level} onChange={(e) => setForm({ ...form, experience_level: e.target.value as ProfileForm['experience_level'] })}
               className={inputClass} style={inputStyle}>
               <option value="beginner">Iniciante</option>
               <option value="intermediate">Intermediário</option>
@@ -218,7 +234,7 @@ export default function ProfilePage() {
           <label className="block text-xs font-semibold mb-1.5 uppercase tracking-wider" style={{ color: '#94a3b8' }}>
             App de academia
           </label>
-          <select value={form.gym_app_preference} onChange={(e) => setForm({ ...form, gym_app_preference: e.target.value })}
+          <select value={form.gym_app_preference} onChange={(e) => setForm({ ...form, gym_app_preference: e.target.value as ProfileForm['gym_app_preference'] })}
             className={inputClass} style={inputStyle}>
             <option value="none">Nenhum</option>
             <option value="wellhub">Wellhub</option>
