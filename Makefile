@@ -89,3 +89,53 @@ db-restore-sql: ## Restaura banco a partir de FILE=...sql
 	@echo "Restaurando banco a partir de $(FILE)..."
 	@cat "$(FILE)" | $(COMPOSE) exec -T $(DB_SERVICE) sh -c 'psql -v ON_ERROR_STOP=1 -U "$(DB_USER)" -d "$(DB_NAME)"'
 	@echo "Restore concluido com sucesso."
+
+# ─── Produção (AWS / EC2) ────────────────────────────────────────────────────
+PROD_COMPOSE ?= docker compose -f docker-compose.prod.yml
+
+prod-build:          ## [PROD] Build das imagens de producao (backend + nginx multi-stage)
+	$(PROD_COMPOSE) build --no-cache
+
+prod-up:             ## [PROD] Sobe todos os servicos em background
+	$(PROD_COMPOSE) up -d
+
+prod-down:           ## [PROD] Para todos os servicos
+	$(PROD_COMPOSE) down
+
+prod-logs:           ## [PROD] Acompanha logs em tempo real
+	$(PROD_COMPOSE) logs -f
+
+prod-ps:             ## [PROD] Status dos containers
+	$(PROD_COMPOSE) ps
+
+prod-restart:        ## [PROD] Reinicia todos os servicos
+	$(PROD_COMPOSE) restart
+
+prod-migrate:        ## [PROD] Executa migrate no container backend
+	$(PROD_COMPOSE) exec backend python manage.py migrate
+
+prod-createsuperuser: ## [PROD] Cria superusuario Django
+	$(PROD_COMPOSE) exec backend python manage.py createsuperuser
+
+prod-collectstatic:  ## [PROD] Executa collectstatic manualmente
+	$(PROD_COMPOSE) exec backend python manage.py collectstatic --no-input
+
+prod-nginx-reload:   ## [PROD] Recarrega Nginx sem downtime (ex: apos renovar SSL)
+	$(PROD_COMPOSE) exec nginx nginx -s reload
+
+prod-shell:          ## [PROD] Shell Django no backend
+	$(PROD_COMPOSE) exec backend python manage.py shell
+
+prod-db-dump:        ## [PROD] Dump do banco de producao em backups/
+	@mkdir -p $(BACKUP_DIR)
+	@$(PROD_COMPOSE) exec -T db sh -c 'pg_dump -U "$(DB_USER)" -d "$(DB_NAME)" --clean --if-exists --no-owner --no-privileges --encoding=UTF8' > "$(BACKUP_DIR)/$(DUMP_FILE)"
+	@echo "Dump criado: $(BACKUP_DIR)/$(DUMP_FILE)"
+
+init-ssl:            ## [PROD] Configura SSL Let's Encrypt — uso: make init-ssl DOMAIN=x.com EMAIL=y@z.com
+	@test -n "$(DOMAIN)" || (echo "ERRO: Informe DOMAIN. Exemplo: make init-ssl DOMAIN=app.meusite.com EMAIL=admin@meusite.com" && exit 1)
+	@test -n "$(EMAIL)"  || (echo "ERRO: Informe EMAIL.  Exemplo: make init-ssl DOMAIN=app.meusite.com EMAIL=admin@meusite.com" && exit 1)
+	@./scripts/init-ssl.sh $(DOMAIN) $(EMAIL)
+
+renew-ssl:           ## [PROD] Renova certificado SSL (use no cron: 0 12 * * *)
+	$(PROD_COMPOSE) run --rm certbot renew
+	$(PROD_COMPOSE) exec nginx nginx -s reload
