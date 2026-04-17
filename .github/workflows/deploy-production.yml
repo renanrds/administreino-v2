@@ -48,66 +48,44 @@ jobs:
               exit 1
             fi
 
-            echo "[1/9] Atualizando código"
+            echo "[1/7] Atualizando código"
             git fetch origin main
             git checkout main
             git reset --hard origin/main
 
-            echo "[2/9] Ajustando domínio do Nginx"
-            if grep -q "YOUR_DOMAIN" nginx/nginx.conf; then
-              sed -i "s/YOUR_DOMAIN/${DOMAIN}/g" nginx/nginx.conf
-            fi
-
-            echo "[3/9] Validando certificados"
-            CERT_DIR="nginx/certbot/conf/live/${DOMAIN}"
-            ALT_CERT_DIR="/etc/letsencrypt/live/${DOMAIN}"
-
-            if sudo test -f "${CERT_DIR}/fullchain.pem" && sudo test -f "${CERT_DIR}/privkey.pem"; then
-              echo "Certificado encontrado em ${CERT_DIR}"
-            elif sudo test -f "${ALT_CERT_DIR}/fullchain.pem" && sudo test -f "${ALT_CERT_DIR}/privkey.pem"; then
-              echo "Certificado encontrado em ${ALT_CERT_DIR}"
-            else
-              echo "ERRO: certificado não encontrado para ${DOMAIN}."
-              echo "Verificados: ${CERT_DIR} e ${ALT_CERT_DIR}"
-              echo "Execute na EC2: make init-ssl DOMAIN=${DOMAIN} EMAIL=<seu_email>"
-              exit 1
-            fi
-
-            echo "[4/9] Subindo banco"
-            docker compose --env-file .env.prod -f docker-compose.prod.yml up -d db
+            echo "[2/7] Subindo banco de dados e túnel"
+            docker compose --env-file .env.prod -f docker-compose.prod.yml up -d db tunnel
             sleep 8
 
-            echo "[5/9] Backup pre-deploy (best effort)"
+            echo "[3/7] Backup pre-deploy (best effort)"
             mkdir -p backups
             TS="$(date +%Y%m%d_%H%M%S)"
             docker compose --env-file .env.prod -f docker-compose.prod.yml exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --no-owner --no-privileges --encoding=UTF8' > "backups/pre_deploy_${TS}.sql" || echo "Aviso: falha ao gerar backup pre-deploy"
 
-            echo "[6/9] Build imagens"
+            echo "[4/7] Build imagens do Backend e Nginx"
             docker compose --env-file .env.prod -f docker-compose.prod.yml build backend nginx
 
-            echo "[7/9] Recriando backend e nginx"
+            echo "[5/7] Recriando backend e nginx"
             docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --force-recreate backend
             docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --force-recreate nginx
 
-            echo "[8/9] Status dos serviços"
+            echo "[6/7] Status dos serviços"
             docker compose --env-file .env.prod -f docker-compose.prod.yml ps
 
-            echo "[9/9] Health checks"
-            docker compose --env-file .env.prod -f docker-compose.prod.yml exec backend \
-              python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/docs/'); print('backend-ok')"
-
+            echo "[7/7] Health checks públicos via Cloudflare"
             ATTEMPTS=20
             i=1
             while [ "$i" -le "$ATTEMPTS" ]; do
-              if curl -kfsS "https://localhost/api/docs/" >/dev/null 2>&1; then
-                echo "Health check OK"
+              # Agora ele testa a URL pública real, garantindo que o túnel e o app estão no ar!
+              if curl -kfsS "https://${DOMAIN}/api/docs/" >/dev/null 2>&1; then
+                echo "Health check OK! Aplicação está online."
                 exit 0
               fi
-              echo "Aguardando aplicação... tentativa $i/$ATTEMPTS"
+              echo "Aguardando propagação e inicialização... tentativa $i/$ATTEMPTS"
               i=$((i+1))
-              sleep 3
+              sleep 5
             done
 
             echo "ERRO: health check falhou após deploy"
-            docker compose --env-file .env.prod -f docker-compose.prod.yml logs --tail=120 backend nginx db
+            docker compose --env-file .env.prod -f docker-compose.prod.yml logs --tail=120 backend nginx tunnel
             exit 1
