@@ -44,27 +44,35 @@ services:
       context: .
       dockerfile: nginx/Dockerfile
     container_name: administreino_nginx_prod
-    ports:
-      - "80:80"
-      - "443:443"
+#    ports:
+#      - "80:80"
+#      - "443:443"
     volumes:
       - static_files:/app/staticfiles:ro
       - media_files:/app/media:ro
-      - ./nginx/certbot/conf:/etc/letsencrypt:ro
-      - ./nginx/certbot/www:/var/www/certbot:ro
+#      - ./nginx/certbot/conf:/etc/letsencrypt:ro
+#      - ./nginx/certbot/www:/var/www/certbot:ro
     depends_on:
       backend:
         condition: service_healthy
     restart: unless-stopped
+    
+  tunnel:
+    image: cloudflare/cloudflared:latest
+    container_name: administreino_tunnel_prod
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${TUNNEL_TOKEN}
+    depends_on:
+      - nginx
 
-  certbot:
-    image: certbot/certbot:latest
-    container_name: administreino_certbot
-    volumes:
-      - ./nginx/certbot/conf:/etc/letsencrypt
-      - ./nginx/certbot/www:/var/www/certbot
-    # Executado manualmente via: make init-ssl ou make renew-ssl
-    # Sem restart_policy — não é um serviço contínuo
+#  certbot:
+#    image: certbot/certbot:latest
+#    container_name: administreino_certbot
+#    volumes:
+#      - ./nginx/certbot/conf:/etc/letsencrypt
+#      - ./nginx/certbot/www:/var/www/certbot
+#    # Executado manualmente via: make init-ssl ou make renew-ssl
+#    # Sem restart_policy — não é um serviço contínuo
 
 volumes:
   postgres_data:
