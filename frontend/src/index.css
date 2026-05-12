@@ -1,9 +1,9 @@
 @import "tailwindcss";
 
 :root {
-  --color-primary: #ff8a1f;
-  --color-primary-dark: #e85d04;
-  --color-accent: #f59e0b;
+  --color-primary: #3b82f6;
+  --color-primary-dark: #1d4ed8;
+  --color-accent: #60a5fa;
   --color-success: #10b981;
   --color-danger: #ef4444;
   --color-bg: #0f0f1a;
@@ -12,6 +12,18 @@
   --color-border: #2a2a4a;
   --color-text: #e2e8f0;
   --color-muted: #94a3b8;
+}
+
+:root[data-theme='administreino'] {
+  --color-primary: #ff8a1f;
+  --color-primary-dark: #e85d04;
+  --color-accent: #f59e0b;
+}
+
+:root[data-theme='adminisgrana'] {
+  --color-primary: #22c55e;
+  --color-primary-dark: #15803d;
+  --color-accent: #4ade80;
 }
 
 * {
@@ -31,9 +43,9 @@ body {
 ::-webkit-scrollbar-thumb { background: var(--color-primary); border-radius: 2px; }
 
 @keyframes pulse-ring {
-  0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255, 138, 31, 0.7); }
-  70% { transform: scale(1); box-shadow: 0 0 0 10px rgba(255, 138, 31, 0); }
-  100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(255, 138, 31, 0); }
+  0% { transform: scale(0.95); box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-primary) 70%, transparent); }
+  70% { transform: scale(1); box-shadow: 0 0 0 10px color-mix(in srgb, var(--color-primary) 0%, transparent); }
+  100% { transform: scale(0.95); box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-primary) 0%, transparent); }
 }
 
 @keyframes slide-up {

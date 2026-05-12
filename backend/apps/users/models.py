@@ -4,6 +4,10 @@ from django.db import models
 
 class User(AbstractUser):
     """Modelo de usuário customizado para o Administreino."""
+    class PlanType(models.TextChoices):
+        FREE = 'free', 'Free'
+        PREMIUM = 'premium', 'Premium'
+
     class Gender(models.TextChoices):
         MALE = 'male', 'Masculino'
         FEMALE = 'female', 'Feminino'
@@ -37,6 +41,16 @@ class User(AbstractUser):
     age = models.PositiveIntegerField(null=True, blank=True)
     primary_goal = models.CharField(max_length=120, blank=True, default='')
     weekly_training_days = models.PositiveIntegerField(null=True, blank=True)
+    plan_type = models.CharField(
+        max_length=20,
+        choices=PlanType.choices,
+        default=PlanType.FREE,
+    )
+    is_premium = models.BooleanField(default=False)
+    max_routines = models.PositiveIntegerField(default=3)
+    max_ai_generations_per_day = models.PositiveIntegerField(default=1)
+    has_administreino_access = models.BooleanField(default=True)
+    has_adminisgrana_access = models.BooleanField(default=False)
     gym_app_preference = models.CharField(
         max_length=20,
         choices=GymAppPreference.choices,

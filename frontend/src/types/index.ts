@@ -9,6 +9,14 @@ export interface User {
   username: string;
   first_name: string;
   last_name: string;
+  is_staff?: boolean;
+  is_superuser?: boolean;
+  plan_type?: 'free' | 'premium';
+  is_premium?: boolean;
+  max_routines?: number;
+  max_ai_generations_per_day?: number;
+  has_administreino_access?: boolean;
+  has_adminisgrana_access?: boolean;
   avatar?: string;
   bio?: string;
   weight?: number;
@@ -27,6 +35,85 @@ export interface AuthTokens {
   access: string;
   refresh: string;
   user: User;
+}
+
+export type FinanceGoal = 'control_spending' | 'build_reserve' | 'pay_debts' | 'invest_better';
+
+export type FinanceRiskProfile = 'conservative' | 'balanced' | 'bold';
+
+export type FinancePlanningStyle = 'simple' | 'guided' | 'detailed';
+
+export type FinanceWalletType = 'cash' | 'checking' | 'savings' | 'investment';
+
+export type FinanceTransactionType = 'expense' | 'income';
+
+export interface FinancialProfile {
+  monthly_income: number;
+  monthly_fixed_expenses: number;
+  savings_target_percent: number;
+  payday_day: number;
+  financial_goal: FinanceGoal;
+  risk_profile: FinanceRiskProfile;
+  planning_style: FinancePlanningStyle;
+  onboarding_completed: boolean;
+}
+
+export interface FinanceWallet {
+  id: number;
+  name: string;
+  wallet_type: FinanceWalletType;
+  initial_balance: number;
+  current_balance: number;
+  is_primary: boolean;
+  include_in_dashboard: boolean;
+  created_at: string;
+}
+
+export interface FinanceCategory {
+  id: number;
+  name: string;
+  category_type: FinanceTransactionType;
+  color: string;
+  icon: string;
+  is_default: boolean;
+}
+
+export interface FinanceTransaction {
+  id: number;
+  wallet: number;
+  wallet_name: string;
+  category?: number;
+  category_name?: string;
+  transaction_type: FinanceTransactionType;
+  description: string;
+  amount: number;
+  transaction_date: string;
+  notes?: string;
+  created_at: string;
+}
+
+export interface FinanceExpenseBreakdownItem {
+  category: string;
+  color: string;
+  total: number;
+}
+
+export interface FinanceDashboardSummary {
+  total_balance: number;
+  income_total: number;
+  expense_total: number;
+  monthly_goal: number;
+  savings_now: number;
+}
+
+export interface FinanceDashboardData {
+  onboarding_completed: boolean;
+  profile: FinancialProfile | null;
+  summary: FinanceDashboardSummary;
+  wallets: FinanceWallet[];
+  recent_transactions: FinanceTransaction[];
+  expense_breakdown: FinanceExpenseBreakdownItem[];
+  insights: string[];
 }
 
 export type MuscleGroup =

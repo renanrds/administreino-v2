@@ -4,8 +4,8 @@ import {
   Calendar, Clock, CheckCircle2, XCircle,
   TrendingUp, ChevronRight, Trash2
 } from 'lucide-react';
-import api from '../services/api';
-import type { WorkoutSession } from '../types';
+import api from '../../../services/api';
+import type { WorkoutSession } from '../../../types';
 
 function formatDuration(seconds?: number) {
   if (!seconds) return '—';
@@ -34,7 +34,7 @@ export default function HistoryPage() {
     setLoading(true);
     const params = filter !== 'all' ? `?status=${filter}` : '';
     api.get(`/sessions/${params}`)
-      .then(( r) => setSessions(r.data))
+      .then((r) => setSessions(r.data))
       .finally(() => setLoading(false));
   }, [filter]);
 

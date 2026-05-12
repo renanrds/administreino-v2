@@ -10,6 +10,7 @@ from .serializers import (
     UserRegisterSerializer,
     UserProfileSerializer,
     GymLocationSerializer,
+    AdminUserManageSerializer,
 )
 
 User = get_user_model()
@@ -40,6 +41,20 @@ class ProfileView(generics.RetrieveUpdateAPIView):
 
     def get_object(self):
         return self.request.user
+
+
+class AdminUserListView(generics.ListAPIView):
+    serializer_class = AdminUserManageSerializer
+    permission_classes = [permissions.IsAdminUser]
+
+    def get_queryset(self):
+        return User.objects.all().order_by('-date_joined')
+
+
+class AdminUserDetailView(generics.RetrieveUpdateAPIView):
+    serializer_class = AdminUserManageSerializer
+    permission_classes = [permissions.IsAdminUser]
+    queryset = User.objects.all().order_by('-date_joined')
 
 
 class AcceptTermsView(APIView):

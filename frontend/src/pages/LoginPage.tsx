@@ -38,10 +38,10 @@ export default function LoginPage() {
           <img src="/branding/adminstreino-emblem.svg" alt="Administreino" className="w-12 h-12" />
         </div>
         <h1 className="text-3xl font-black text-white tracking-tight">
-          Adminis<span style={{ color: '#ff8a1f' }}>treino</span>
+          Adminis<span style={{ color: '#ff8a1f' }}>tudo</span>
         </h1>
         <p className="text-sm mt-1" style={{ color: '#94a3b8' }}>
-          Seu gerenciador de treinos
+          Acesso aos seus apps
         </p>
       </div>
 

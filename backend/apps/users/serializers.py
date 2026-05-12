@@ -36,6 +36,14 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
             'username': self.user.username,
             'first_name': self.user.first_name,
             'last_name': self.user.last_name,
+            'is_staff': self.user.is_staff,
+            'is_superuser': self.user.is_superuser,
+            'plan_type': self.user.plan_type,
+            'is_premium': self.user.is_premium,
+            'max_routines': self.user.max_routines,
+            'max_ai_generations_per_day': self.user.max_ai_generations_per_day,
+            'has_administreino_access': self.user.has_administreino_access,
+            'has_adminisgrana_access': self.user.has_adminisgrana_access,
             'wellhub_enabled': self.user.wellhub_enabled,
             'gym_app_preference': self.user.gym_app_preference,
             'gender': self.user.gender,
@@ -84,11 +92,41 @@ class UserProfileSerializer(serializers.ModelSerializer):
         model = User
         fields = [
             'id', 'email', 'username', 'first_name', 'last_name',
+            'is_staff', 'is_superuser',
             'avatar', 'bio', 'weight', 'height',
+            'plan_type', 'is_premium', 'max_routines', 'max_ai_generations_per_day',
+            'has_administreino_access', 'has_adminisgrana_access',
             'gender', 'gender_display',
             'experience_level', 'experience_level_display',
             'age', 'primary_goal', 'weekly_training_days',
             'wellhub_enabled', 'gym_app_preference', 'gym_app_preference_display',
             'terms_accepted', 'gym_locations', 'created_at'
         ]
-        read_only_fields = ['id', 'email', 'created_at', 'gym_locations']
+        read_only_fields = [
+            'id', 'email', 'plan_type', 'is_premium',
+            'is_staff', 'is_superuser',
+            'has_administreino_access', 'has_adminisgrana_access',
+            'max_routines', 'max_ai_generations_per_day',
+            'created_at', 'gym_locations'
+        ]
+
+
+class AdminUserManageSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = [
+            'id',
+            'email',
+            'username',
+            'first_name',
+            'last_name',
+            'is_active',
+            'is_staff',
+            'is_superuser',
+            'plan_type',
+            'is_premium',
+            'has_administreino_access',
+            'has_adminisgrana_access',
+            'created_at',
+        ]
+        read_only_fields = ['id', 'is_superuser', 'created_at']

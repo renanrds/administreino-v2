@@ -22,8 +22,9 @@ INSTALLED_APPS = [
     'corsheaders',
     'drf_spectacular',
     # Local
-    'users',
-    'workouts',
+    'apps.users',
+    'apps.workouts',
+    'apps.adminisgrana',
 ]
 
 MIDDLEWARE = [
