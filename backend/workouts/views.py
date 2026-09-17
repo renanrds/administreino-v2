@@ -2,8 +2,8 @@ from rest_framework import generics, permissions, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from django.shortcuts import get_object_or_404
-from django.db.models import Avg
 from django.db import transaction
+from django.db.models import Avg, Count, Prefetch, Q
 from django.utils import timezone
 from datetime import timedelta
 import re
@@ -11,10 +11,10 @@ import urllib.request
 import urllib.parse
 
 from .models import Workout, Exercise, WorkoutSession, ExerciseLog
-from .models import MuscleGroup, WorkoutType
 from .serializers import (
-    WorkoutSerializer, WorkoutCreateSerializer, ExerciseSerializer,
+    WorkoutSerializer, WorkoutWriteSerializer, ExerciseSerializer,
     WorkoutSessionSerializer, WorkoutSessionListSerializer, ExerciseLogSerializer,
+    ProgramImportSerializer,
 )
 
 
@@ -23,6 +23,7 @@ PROGRAM_TREINO_SUFFIX_PATTERN = re.compile(r"\s*-\s*TREINO\s+([A-Z0-9]+)\s*$", r
 
 
 def parse_sequence_order(workout_name):
+    """Fallback legado para nomes sem sequence_order preenchido."""
     upper = workout_name.upper()
     for pattern in [
         re.compile(r"DIA\s*([A-Z])"),
@@ -33,6 +34,13 @@ def parse_sequence_order(workout_name):
             code = ord(match.group(1))
             if 65 <= code <= 90:
                 return code - 64
+
+    if re.search(r"\bPUSH\b", upper):
+        return 1
+    if re.search(r"\bPULL\b", upper):
+        return 2
+    if re.search(r"\bLEGS\b", upper):
+        return 3
 
     single_letter = re.search(r"\b([A-F])\b", upper)
     if single_letter:
@@ -53,36 +61,82 @@ def parse_program_base(workout_name):
     return workout_name.strip().lower()
 
 
-def parse_reps_input(raw_value):
-    if isinstance(raw_value, int):
-        return raw_value, raw_value, raw_value
+def workout_sequence_group_key(workout):
+    group = (workout.sequence_group or '').strip()
+    if group:
+        return group.lower()
+    return parse_program_base(workout.name) or 'geral'
 
-    if isinstance(raw_value, str):
-        text = raw_value.strip().replace(' ', '')
-        if text.isdigit():
-            value = int(text)
-            return value, value, value
 
-        range_match = re.match(r"^(\d+)-(\d+)$", text)
-        if range_match:
-            min_reps = int(range_match.group(1))
-            max_reps = int(range_match.group(2))
-            if min_reps > max_reps:
-                min_reps, max_reps = max_reps, min_reps
-            return max_reps, min_reps, max_reps
+def workout_sequence_sort_key(workout):
+    order = workout.sequence_order if workout.sequence_order and workout.sequence_order > 0 else parse_sequence_order(workout.name)
+    return (order, workout.name.lower(), workout.id)
 
-    raise ValueError('Formato de reps invalido. Use numero (10) ou intervalo (8-10).')
+
+def resolve_next_workout(workouts, last_workout=None):
+    """Retorna (next_workout, active_group_display, reason).
+
+    Prioriza sequence_group + sequence_order explícitos; nomes legados
+    (Dia A/B, Push/Pull) só entram como fallback via workout_sequence_sort_key.
+    """
+    if not workouts:
+        return None, None, None
+
+    if last_workout is None:
+        first = min(workouts, key=workout_sequence_sort_key)
+        return (
+            first,
+            first.effective_sequence_group,
+            'Sem historico concluido. Primeiro treino da sequencia sugerido.',
+        )
+
+    last_group = workout_sequence_group_key(last_workout)
+    same_program = [w for w in workouts if workout_sequence_group_key(w) == last_group]
+
+    if not same_program:
+        same_program = [
+            w for w in workouts
+            if w.workout_type == getattr(last_workout, 'workout_type', None)
+        ]
+
+    if not same_program:
+        same_program = list(workouts)
+
+    same_program.sort(key=workout_sequence_sort_key)
+    last_index = next((i for i, w in enumerate(same_program) if w.id == last_workout.id), -1)
+    if last_index >= 0:
+        next_workout = same_program[(last_index + 1) % len(same_program)]
+        reason = 'Sequencia do ciclo: avancou para o proximo treino.'
+    else:
+        next_workout = same_program[0]
+        reason = 'Ultimo treino fora do ciclo ativo; reiniciando a sequencia.'
+
+    return next_workout, next_workout.effective_sequence_group, reason
+
+
+def _workout_queryset_for_user(user):
+    return (
+        Workout.objects.filter(user=user)
+        .prefetch_related(
+            Prefetch('exercises', queryset=Exercise.objects.filter(is_active=True))
+        )
+        .annotate(annotated_total_exercises=Count('exercises', filter=Q(exercises__is_active=True)))
+    )
 
 
 class WorkoutListCreateView(generics.ListCreateAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        return Workout.objects.filter(user=self.request.user, is_active=True)
+        return (
+            _workout_queryset_for_user(self.request.user)
+            .filter(is_active=True)
+            .order_by('sequence_group', 'sequence_order', 'name', 'id')
+        )
 
     def get_serializer_class(self):
         if self.request.method == 'POST':
-            return WorkoutCreateSerializer
+            return WorkoutWriteSerializer
         return WorkoutSerializer
 
 
@@ -90,11 +144,11 @@ class WorkoutDetailView(generics.RetrieveUpdateDestroyAPIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
-        return Workout.objects.filter(user=self.request.user)
+        return _workout_queryset_for_user(self.request.user)
 
     def get_serializer_class(self):
         if self.request.method in ['PUT', 'PATCH']:
-            return WorkoutCreateSerializer
+            return WorkoutWriteSerializer
         return WorkoutSerializer
 
     def destroy(self, request, *args, **kwargs):
@@ -110,7 +164,11 @@ class ExerciseListCreateView(generics.ListCreateAPIView):
 
     def get_queryset(self):
         workout_id = self.kwargs['workout_id']
-        return Exercise.objects.filter(workout__id=workout_id, workout__user=self.request.user)
+        return Exercise.objects.filter(
+            workout__id=workout_id,
+            workout__user=self.request.user,
+            is_active=True,
+        )
 
     def perform_create(self, serializer):
         workout_id = self.kwargs['workout_id']
@@ -124,6 +182,10 @@ class ExerciseDetailView(generics.RetrieveUpdateDestroyAPIView):
 
     def get_queryset(self):
         return Exercise.objects.filter(workout__user=self.request.user)
+
+    def perform_destroy(self, instance):
+        instance.is_active = False
+        instance.save(update_fields=['is_active'])
 
 
 class WorkoutSessionListCreateView(generics.ListCreateAPIView):
@@ -205,7 +267,9 @@ class ExerciseLogListCreateView(generics.ListCreateAPIView):
         session_id = self.kwargs['session_id']
         session = get_object_or_404(WorkoutSession, id=session_id, user=self.request.user)
         serializer.save(session=session)
-        total_sets = session.planned_sets_count or sum(e.sets for e in session.workout.exercises.all())
+        total_sets = session.planned_sets_count or sum(
+            e.sets for e in session.workout.exercises.filter(is_active=True)
+        )
         completed_logs = ExerciseLog.objects.filter(session=session, is_completed=True).count()
         if total_sets > 0 and completed_logs >= total_sets:
             session.finish()
@@ -316,199 +380,150 @@ class RecommendedWorkoutView(APIView):
     permission_classes = [permissions.IsAuthenticated]
 
     def get(self, request):
-        workouts = list(Workout.objects.filter(user=request.user, is_active=True))
+        workouts = list(
+            Workout.objects.filter(user=request.user, is_active=True)
+            .order_by('sequence_group', 'sequence_order', 'name', 'id')
+        )
         if not workouts:
             return Response({'next_workout_id': None})
 
         latest_completed = WorkoutSession.objects.filter(
             user=request.user,
             status=WorkoutSession.Status.COMPLETED,
-        ).order_by('-finished_at', '-started_at').first()
+        ).select_related('workout').order_by('-finished_at', '-started_at').first()
 
-        if not latest_completed:
-            first_workout = sorted(workouts, key=lambda w: (parse_sequence_order(w.name), w.name.lower()))[0]
-            return Response({
-                'next_workout_id': first_workout.id,
-                'active_program_name': parse_program_base(first_workout.name),
-                'last_workout_name': None,
-                'reason': 'Sem historico concluido. Primeiro treino da sequencia sugerido.',
-            })
+        last_workout = latest_completed.workout if latest_completed else None
+        next_workout, active_group, reason = resolve_next_workout(workouts, last_workout)
 
-        last_workout = latest_completed.workout
-        last_program_base = parse_program_base(last_workout.name)
+        # Sequence payload: ciclo ativo primeiro, depois demais, sempre por sequence_order.
+        active_key = workout_sequence_group_key(next_workout) if next_workout else None
 
-        same_program = [
-            workout for workout in workouts
-            if parse_program_base(workout.name) == last_program_base
-        ]
-
-        if not same_program:
-            same_program = [
-                workout for workout in workouts
-                if workout.workout_type == latest_completed.workout_type_snapshot
-            ]
-
-        if not same_program:
-            same_program = workouts
-
-        same_program.sort(key=lambda workout: (parse_sequence_order(workout.name), workout.name.lower()))
-
-        last_index = next((index for index, workout in enumerate(same_program) if workout.id == last_workout.id), -1)
-        if last_index >= 0:
-            next_workout = same_program[(last_index + 1) % len(same_program)]
-        else:
-            next_workout = same_program[0]
+        def sequence_payload_key(w):
+            group_key = workout_sequence_group_key(w)
+            in_active = 0 if active_key and group_key == active_key else 1
+            return (in_active, *workout_sequence_sort_key(w))
 
         return Response({
-            'next_workout_id': next_workout.id,
-            'active_program_name': last_program_base,
-            'last_workout_name': latest_completed.workout_name_snapshot or last_workout.name,
-            'reason': 'Sequencia mantida no mesmo programa com avanco para o proximo dia.',
+            'next_workout_id': next_workout.id if next_workout else None,
+            'active_program_name': active_group,
+            'last_workout_name': (
+                (latest_completed.workout_name_snapshot or last_workout.name)
+                if latest_completed and last_workout else None
+            ),
+            'reason': reason,
+            'sequence': [
+                {
+                    'id': w.id,
+                    'name': w.name,
+                    'sequence_group': w.effective_sequence_group,
+                    'sequence_order': w.sequence_order,
+                    'is_next': next_workout is not None and w.id == next_workout.id,
+                }
+                for w in sorted(workouts, key=sequence_payload_key)
+            ],
+        })
+
+
+class WorkoutReorderView(APIView):
+    """Atualiza sequence_group / sequence_order de varios treinos de uma vez."""
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request):
+        items = request.data.get('items')
+        if not isinstance(items, list) or not items:
+            return Response(
+                {'error': 'Envie items: [{id, sequence_order, sequence_group?}].'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        ids = []
+        for item in items:
+            if not isinstance(item, dict) or 'id' not in item or 'sequence_order' not in item:
+                return Response(
+                    {'error': 'Cada item precisa de id e sequence_order.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+            try:
+                ids.append(int(item['id']))
+                int(item['sequence_order'])
+            except (TypeError, ValueError):
+                return Response(
+                    {'error': 'id e sequence_order devem ser inteiros.'},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        owned = {
+            w.id: w
+            for w in Workout.objects.filter(user=request.user, id__in=ids)
+        }
+        missing = [i for i in ids if i not in owned]
+        if missing:
+            return Response(
+                {'error': f'Treinos nao encontrados: {missing}'},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        with transaction.atomic():
+            for item in items:
+                workout = owned[int(item['id'])]
+                workout.sequence_order = max(0, int(item['sequence_order']))
+                if 'sequence_group' in item and item['sequence_group'] is not None:
+                    workout.sequence_group = str(item['sequence_group'])[:120]
+                workout.save(update_fields=['sequence_group', 'sequence_order', 'updated_at'])
+
+        workouts = list(_workout_queryset_for_user(request.user).filter(is_active=True))
+        return Response({
+            'message': f'{len(items)} treino(s) reordenado(s).',
+            'workouts': WorkoutSerializer(workouts, many=True, context={'request': request}).data,
         })
 
 
 class ImportWorkoutFromJSONView(APIView):
-    """Endpoint para importar um treino gerado por IA em formato JSON."""
+    """Importa um programa gerado por IA (JSON) como N treinos, um por dia.
+
+    Payload:
+    {
+      "name": "Nome do Programa",
+      "description": "Opcional",
+      "workout_type": "hypertrophy",
+      "days": [
+        {
+          "day": "A",
+          "focus": "Peito",
+          "exercises": [
+            {
+              "name": "Supino",
+              "muscle_group": "chest",
+              "sets": 3,
+              "reps": "8-10",
+              "rest_seconds": 90,
+              "weight_kg": 40,
+              "notes": "Opcional"
+            }
+          ]
+        }
+      ]
+    }
+    """
     permission_classes = [permissions.IsAuthenticated]
 
     def post(self, request):
-        """
-        Recebe um JSON do treino e cria o Workout com seus exercícios.
-        Formato esperado:
-        {
-            "name": "Nome do Treino",
-            "description": "Descrição breve",
-            "workout_type": "strength|hypertrophy|etc",
-            "days": [
-                {
-                    "day": "A",
-                    "focus": "Focos musculares",
-                    "exercises": [
-                        {
-                            "name": "Nome do exercício",
-                            "muscle_group": "chest|back|etc",
-                            "sets": 3,
-                            "reps": 10,
-                            "rest_seconds": 60,
-                            "weight_kg": 50 (opcional),
-                            "notes": "Observações" (opcional)
-                        }
-                    ]
-                }
-            ]
-        }
-        """
-        try:
-            data = request.data
-            
-            # Validação básica
-            if not data.get('name'):
-                return Response(
-                    {'error': 'Campo "name" é obrigatório'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            
-            if not data.get('workout_type'):
-                return Response(
-                    {'error': 'Campo "workout_type" é obrigatório'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            
-            # Validar workout_type
-            valid_types = [choice[0] for choice in WorkoutType.choices]
-            if data['workout_type'] not in valid_types:
-                return Response(
-                    {'error': f'workout_type deve ser um de: {", ".join(valid_types)}'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-            
-            base_name = data['name']
-            base_description = data.get('description', '')
-            days = data.get('days', [])
-            if not isinstance(days, list) or len(days) == 0:
-                return Response(
-                    {'error': 'Campo "days" deve ser uma lista com ao menos 1 dia'},
-                    status=status.HTTP_400_BAD_REQUEST
-                )
+        serializer = ProgramImportSerializer(data=request.data, context={'request': request})
+        serializer.is_valid(raise_exception=True)
+        created_workouts = serializer.save()
 
-            valid_groups = [choice[0] for choice in MuscleGroup.choices]
-            created_workouts = []
+        workout_ids = [w.id for w in created_workouts]
+        workouts = list(
+            _workout_queryset_for_user(request.user).filter(id__in=workout_ids)
+        )
+        # Preserve creation order (queryset may reorder by -created_at).
+        by_id = {w.id: w for w in workouts}
+        ordered = [by_id[wid] for wid in workout_ids if wid in by_id]
 
-            with transaction.atomic():
-                for day_data in days:
-                    day_label = str(day_data.get('day', '')).strip() or 'Dia'
-                    day_focus = str(day_data.get('focus', '')).strip()
-                    exercises_list = day_data.get('exercises', [])
-
-                    if not isinstance(exercises_list, list) or len(exercises_list) == 0:
-                        return Response(
-                            {'error': f'O dia "{day_label}" precisa ter ao menos 1 exercício'},
-                            status=status.HTTP_400_BAD_REQUEST
-                        )
-
-                    day_description = base_description
-                    if day_focus:
-                        day_description = f"{base_description} | Foco: {day_focus}" if base_description else f"Foco: {day_focus}"
-
-                    workout = Workout.objects.create(
-                        user=request.user,
-                        name=f"{base_name} - Dia {day_label}",
-                        description=day_description,
-                        workout_type=data['workout_type'],
-                        is_active=True
-                    )
-
-                    for exercise_order, exercise_data in enumerate(exercises_list):
-                        # Validar campos obrigatórios do exercício
-                        if not exercise_data.get('name'):
-                            return Response(
-                                {'error': f'Todos os exercícios do dia "{day_label}" devem ter um "name"'},
-                                status=status.HTTP_400_BAD_REQUEST
-                            )
-
-                        muscle_group = exercise_data.get('muscle_group')
-                        if not muscle_group or muscle_group not in valid_groups:
-                            return Response(
-                                {'error': f'muscle_group deve ser um de: {", ".join(valid_groups)}'},
-                                status=status.HTTP_400_BAD_REQUEST
-                            )
-
-                        try:
-                            reps, min_reps, max_reps = parse_reps_input(exercise_data.get('reps', 10))
-                        except ValueError as exc:
-                            return Response(
-                                {'error': f'Exercicio "{exercise_data["name"]}" do dia "{day_label}": {str(exc)}'},
-                                status=status.HTTP_400_BAD_REQUEST
-                            )
-
-                        Exercise.objects.create(
-                            workout=workout,
-                            name=exercise_data['name'],
-                            muscle_group=muscle_group,
-                            sets=exercise_data.get('sets', 3),
-                            reps=reps,
-                            min_reps=min_reps,
-                            max_reps=max_reps,
-                            rest_seconds=exercise_data.get('rest_seconds', 60),
-                            weight_kg=exercise_data.get('weight_kg'),
-                            notes=exercise_data.get('notes', ''),
-                            order=exercise_order
-                        )
-
-                    created_workouts.append(workout)
-            
-            # Serializar e retornar os treinos criados por dia
-            serializer = WorkoutSerializer(created_workouts, many=True, context={'request': request})
-            return Response(
-                {
-                    'message': f'{len(created_workouts)} treino(s) importado(s) com sucesso, um por dia.',
-                    'workouts': serializer.data
-                },
-                status=status.HTTP_201_CREATED
-            )
-        
-        except Exception as e:
-            return Response(
-                {'error': f'Erro ao importar treino: {str(e)}'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
+        return Response(
+            {
+                'message': f'{len(ordered)} treino(s) importado(s) com sucesso, um por dia.',
+                'workouts': WorkoutSerializer(ordered, many=True, context={'request': request}).data,
+            },
+            status=status.HTTP_201_CREATED,
+        )

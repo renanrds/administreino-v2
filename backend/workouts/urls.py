@@ -6,7 +6,7 @@ from .views import (
     FinishSessionView, CancelSessionView,
     ExerciseLogListCreateView, ExerciseLogDetailView,
     DashboardView, WorkoutHistoryView,
-    ImportWorkoutFromJSONView, RecommendedWorkoutView,
+    ImportWorkoutFromJSONView, RecommendedWorkoutView, WorkoutReorderView,
     YouTubeSearchView,
 )
 
@@ -14,6 +14,7 @@ urlpatterns = [
     # Dashboard
     path('dashboard/', DashboardView.as_view(), name='dashboard'),
     path('workouts/recommended/', RecommendedWorkoutView.as_view(), name='workout-recommended'),
+    path('workouts/reorder/', WorkoutReorderView.as_view(), name='workout-reorder'),
 
     # Workouts
     path('workouts/', WorkoutListCreateView.as_view(), name='workout-list'),

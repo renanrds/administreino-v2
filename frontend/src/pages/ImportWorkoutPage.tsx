@@ -1,9 +1,10 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { ArrowLeft, Upload, AlertCircle, CheckCircle, Copy, ChevronDown, ChevronRight, Trash2 } from 'lucide-react';
-import api from '../services/api';
 import type { Workout, MuscleGroup, WorkoutType } from '../types';
 import { MUSCLE_GROUP_LABELS, WORKOUT_TYPE_LABELS } from '../types';
+import { formatApiError, importWorkoutsFromJson, workoutKeys } from '../lib/workoutsApi';
 
 const MUSCLE_GROUPS = Object.entries(MUSCLE_GROUP_LABELS) as [MuscleGroup, string][];
 const WORKOUT_TYPES = Object.entries(WORKOUT_TYPE_LABELS) as [WorkoutType, string][];
@@ -38,11 +39,11 @@ interface ImportError {
 
 export default function ImportWorkoutPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [step, setStep] = useState<'input' | 'review' | 'success'>('input');
   const [jsonInput, setJsonInput] = useState('');
   const [parsedData, setParsedData] = useState<ParsedWorkout | null>(null);
   const [expandedDays, setExpandedDays] = useState<Set<number>>(new Set([0]));
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState<ImportError | null>(null);
   const [successData, setSuccessData] = useState<{ message: string; workouts: Workout[] } | null>(null);
   const [copied, setCopied] = useState(false);
@@ -50,6 +51,19 @@ export default function ImportWorkoutPage() {
   /** Remove markdown code fences that some AIs wrap around JSON */
   const cleanJSON = (str: string): string =>
     str.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '').trim();
+
+  const importMutation = useMutation({
+    mutationFn: (payload: ParsedWorkout) => importWorkoutsFromJson(payload),
+    onSuccess: (data) => {
+      setSuccessData(data);
+      setStep('success');
+      setJsonInput('');
+      queryClient.invalidateQueries({ queryKey: workoutKeys.all });
+    },
+    onError: (err: any) => {
+      setError({ message: formatApiError(err, 'Erro ao importar treino') });
+    },
+  });
 
   const validateAndPreview = () => {
     setError(null);
@@ -74,21 +88,13 @@ export default function ImportWorkoutPage() {
     setStep('review');
   };
 
-  const handleImport = async () => {
+  const handleImport = () => {
     if (!parsedData) return;
     setError(null);
-    setLoading(true);
-    try {
-      const response = await api.post('/workouts/import-from-json/', parsedData);
-      setSuccessData(response.data);
-      setStep('success');
-      setJsonInput('');
-    } catch (err: any) {
-      setError({ message: err.response?.data?.error || 'Erro ao importar treino' });
-    } finally {
-      setLoading(false);
-    }
+    importMutation.mutate(parsedData);
   };
+
+  const loading = importMutation.isPending;
 
   const toggleDay = (idx: number) => {
     setExpandedDays(prev => {
@@ -149,6 +155,7 @@ export default function ImportWorkoutPage() {
     days: [
       {
         day: "A",
+        sequence_order: 1,
         focus: "Peito, Ombros e Tríceps",
         exercises: [
           {
@@ -159,6 +166,22 @@ export default function ImportWorkoutPage() {
             rest_seconds: 120,
             weight_kg: 30,
             notes: "Movimento controlado e amplitude completa"
+          }
+        ]
+      },
+      {
+        day: "B",
+        sequence_order: 2,
+        focus: "Costas e Bíceps",
+        exercises: [
+          {
+            name: "Puxada Frontal",
+            muscle_group: "back",
+            sets: 4,
+            reps: "8-10",
+            rest_seconds: 90,
+            weight_kg: null,
+            notes: ""
           }
         ]
       }
@@ -490,6 +513,19 @@ export default function ImportWorkoutPage() {
                                 style={{ background: '#1a1a2e', border: '1px solid #2a2a4a' }}
                               />
                             </div>
+                          </div>
+
+                          {/* Observações */}
+                          <div>
+                            <label className="block text-xs mb-1" style={{ color: '#475569' }}>Observações</label>
+                            <textarea
+                              value={ex.notes ?? ''}
+                              onChange={(e) => updateExercise(dayIdx, exIdx, 'notes', e.target.value)}
+                              placeholder="Opcional"
+                              rows={2}
+                              className="w-full px-3 py-2 rounded-xl text-sm outline-none resize-none text-white"
+                              style={{ background: '#1a1a2e', border: '1px solid #2a2a4a' }}
+                            />
                           </div>
                         </div>
                       ))}

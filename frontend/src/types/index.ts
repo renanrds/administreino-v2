@@ -52,6 +52,7 @@ export interface Exercise {
   weight_kg?: number;
   notes?: string;
   order: number;
+  is_active?: boolean;
   created_at: string;
 }
 
@@ -62,6 +63,9 @@ export interface Workout {
   workout_type: WorkoutType;
   workout_type_display: string;
   is_active: boolean;
+  sequence_group?: string;
+  sequence_order?: number;
+  effective_sequence_group?: string;
   exercises: Exercise[];
   total_exercises: number;
   created_at: string;
@@ -92,6 +96,13 @@ export interface RecommendedWorkout {
   active_program_name?: string;
   last_workout_name?: string | null;
   reason?: string;
+  sequence?: {
+    id: number;
+    name: string;
+    sequence_group: string;
+    sequence_order: number;
+    is_next: boolean;
+  }[];
 }
 
 export interface WorkoutSession {
