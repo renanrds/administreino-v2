@@ -1,4 +1,10 @@
-name: Deploy Production
+name: Deploy Production (Conexo)
+
+# Deploy no Debian Conexo: /home/conexosvr/administreino_prod
+# NÃO usa o path nem o túnel do Conexo ERP (conexo_prod).
+#
+# Runner esperado: self-hosted com labels [self-hosted, linux, administreino-prod]
+# Ver docs/deploy.md para registro do runner e alternativa via Cloudflare Access SSH.
 
 on:
   push:
@@ -7,85 +13,114 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: production-deploy
-  cancel-in-progress: true
+  group: administreino-production-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
 
 jobs:
-  deploy:
-    name: Deploy to EC2
+  backend:
+    name: Backend gate
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_DB: administreino_db
+          POSTGRES_USER: admin
+          POSTGRES_PASSWORD: adminpassword
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U admin -d administreino_db"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    defaults:
+      run:
+        working-directory: backend
+    env:
+      SECRET_KEY: ci-only-not-for-production
+      DEBUG: "True"
+      DB_NAME: administreino_db
+      DB_USER: admin
+      DB_PASS: adminpassword
+      DB_HOST: localhost
+      DB_PORT: "5432"
+      ALLOWED_HOSTS: localhost,127.0.0.1,testserver
     steps:
-      - name: Checkout
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+      - run: pip install -r requirements.txt
+      - run: python manage.py check
+      - run: python manage.py test --noinput
+
+  frontend:
+    name: Frontend gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - name: ESLint (informativo)
+        continue-on-error: true
+        run: pnpm lint
+      - run: pnpm build
+
+  deploy:
+    name: Deploy on Conexo (administreino_prod)
+    needs: [backend, frontend]
+    runs-on: [self-hosted, linux, administreino-prod]
+    timeout-minutes: 45
+    steps:
+      - name: Checkout (scripts only; prod tree is separate)
         uses: actions/checkout@v4
 
-      - name: Deploy over SSH
-        uses: appleboy/ssh-action@v1.2.0
-        with:
-          host: ${{ secrets.PROD_HOST }}
-          username: ${{ secrets.PROD_USER }}
-          key: ${{ secrets.PROD_SSH_KEY }}
-          script_stop: true
-          command_timeout: 30m
-          script: |
-            set -eu
-
-            REPO_DIR="${{ vars.PROD_REPO_DIR }}"
-            if [ -z "$REPO_DIR" ]; then
-              REPO_DIR="/home/ubuntu/administreino-v2"
-            fi
-
-            DOMAIN="${{ vars.PROD_DOMAIN }}"
-            if [ -z "$DOMAIN" ]; then
-              DOMAIN="app.r-sistemas.online"
-            fi
-
-            cd "$REPO_DIR"
-
-            if [ ! -f .env.prod ]; then
-              echo "ERRO: .env.prod não encontrado em $REPO_DIR"
-              exit 1
-            fi
-
-            echo "[1/7] Atualizando código"
-            git fetch origin main
-            git checkout main
-            git reset --hard origin/main
-
-            echo "[2/7] Subindo banco de dados e túnel"
-            docker compose --env-file .env.prod -f docker-compose.prod.yml up -d db tunnel
-            sleep 8
-
-            echo "[3/7] Backup pre-deploy (best effort)"
-            mkdir -p backups
-            TS="$(date +%Y%m%d_%H%M%S)"
-            docker compose --env-file .env.prod -f docker-compose.prod.yml exec -T db sh -c 'pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" --clean --if-exists --no-owner --no-privileges --encoding=UTF8' > "backups/pre_deploy_${TS}.sql" || echo "Aviso: falha ao gerar backup pre-deploy"
-
-            echo "[4/7] Build imagens do Backend e Nginx"
-            docker compose --env-file .env.prod -f docker-compose.prod.yml build backend nginx
-
-            echo "[5/7] Recriando backend e nginx"
-            docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --force-recreate backend
-            docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --force-recreate nginx
-
-            echo "[6/7] Status dos serviços"
-            docker compose --env-file .env.prod -f docker-compose.prod.yml ps
-
-            echo "[7/7] Health checks públicos via Cloudflare"
-            ATTEMPTS=20
-            i=1
-            while [ "$i" -le "$ATTEMPTS" ]; do
-              # Agora ele testa a URL pública real, garantindo que o túnel e o app estão no ar!
-              if curl -kfsS "https://${DOMAIN}/api/docs/" >/dev/null 2>&1; then
-                echo "Health check OK! Aplicação está online."
-                exit 0
-              fi
-              echo "Aguardando propagação e inicialização... tentativa $i/$ATTEMPTS"
-              i=$((i+1))
-              sleep 5
-            done
-
-            echo "ERRO: health check falhou após deploy"
-            docker compose --env-file .env.prod -f docker-compose.prod.yml logs --tail=120 backend nginx tunnel
+      - name: Update production stack
+        env:
+          # Defaults aplicados no script se as vars estiverem vazias.
+          REPO_DIR: ${{ vars.PROD_REPO_DIR }}
+          DEPLOY_SHA: ${{ github.sha }}
+          PROD_DOMAIN: ${{ vars.PROD_DOMAIN }}
+          # Nunca injete SECRET_KEY / TUNNEL_TOKEN / DB_PASS aqui — usam .env.prod no host.
+        run: |
+          set -eu
+          export REPO_DIR="${REPO_DIR:-/home/conexosvr/administreino_prod}"
+          export PROD_DOMAIN="${PROD_DOMAIN:-app.r-sistemas.online}"
+          echo "Deploy SHA=${DEPLOY_SHA}"
+          echo "Repo dir=${REPO_DIR}"
+          echo "Domain=${PROD_DOMAIN}"
+          test -d "${REPO_DIR}" || {
+            echo "ERRO: ${REPO_DIR} não existe neste runner."
+            echo "Registre o runner no host Conexo com label administreino-prod e clone o repo nesse path."
             exit 1
+          }
+          test -f "${REPO_DIR}/.env.prod" || {
+            echo "ERRO: ${REPO_DIR}/.env.prod ausente — não criar/sobrescrever pelo CI."
+            exit 1
+          }
+          # Garante isolamento do ERP
+          case "${REPO_DIR}" in
+            */conexo_prod|*/conexo_prod/*)
+              echo "ERRO: REPO_DIR aponta para conexo_prod — abortando."
+              exit 1
+              ;;
+          esac
+          bash ./deploy/debian/update-prod.sh

@@ -1,0 +1,60 @@
+# LEGADO — Deploy EC2 Ubuntu (appleboy/ssh-action).
+# Desativado: não roda em push. Só sob workflow_dispatch com confirmação explícita.
+# Produção atual: Debian Conexo → .github/workflows/deploy-production.yml + docs/deploy.md
+
+name: Deploy EC2 Legacy (disabled)
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Digite ENABLE-LEGACY-EC2 para executar (não use em produção Conexo)'
+        required: true
+        type: string
+
+concurrency:
+  group: administreino-ec2-legacy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy to EC2 (legacy)
+    if: ${{ github.event.inputs.confirm == 'ENABLE-LEGACY-EC2' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Deploy over SSH (legacy)
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.PROD_HOST }}
+          username: ${{ secrets.PROD_USER }}
+          key: ${{ secrets.PROD_SSH_KEY }}
+          script_stop: true
+          command_timeout: 30m
+          script: |
+            set -eu
+            REPO_DIR="${{ vars.PROD_REPO_DIR }}"
+            if [ -z "$REPO_DIR" ]; then
+              REPO_DIR="/home/ubuntu/administreino-v2"
+            fi
+            DOMAIN="${{ vars.PROD_DOMAIN }}"
+            if [ -z "$DOMAIN" ]; then
+              DOMAIN="app.r-sistemas.online"
+            fi
+            cd "$REPO_DIR"
+            if [ ! -f .env.prod ]; then
+              echo "ERRO: .env.prod não encontrado em $REPO_DIR"
+              exit 1
+            fi
+            git fetch origin main
+            git checkout main
+            git reset --hard origin/main
+            docker compose --env-file .env.prod -f docker-compose.prod.yml up -d db tunnel
+            sleep 8
+            docker compose --env-file .env.prod -f docker-compose.prod.yml build backend nginx
+            docker compose --env-file .env.prod -f docker-compose.prod.yml up -d --force-recreate backend nginx
+            docker compose --env-file .env.prod -f docker-compose.prod.yml ps
+            curl -kfsS "https://${DOMAIN}/api/docs/" >/dev/null

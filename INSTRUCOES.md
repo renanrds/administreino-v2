@@ -82,4 +82,11 @@ Para instalar no celular:
 3. O Administreino aparecerá como um aplicativo nativo no seu celular, rodando em tela cheia e com ícone próprio!
 
 ---
+
+## 6. CI/CD e produção (Debian Conexo)
+
+Deploy de produção, runner self-hosted e checklist: ver **[docs/deploy.md](docs/deploy.md)**.
+
+---
+
 Desenvolvido com sucesso para o seu ambiente Debian 13! Bons treinos! 💪
