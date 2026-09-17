@@ -1,133 +1,122 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
-  ArrowLeft, Copy, Download, Brain, Zap, Target, ExternalLink
+  ArrowLeft, Copy, Download, Brain, Zap, Target, ExternalLink, UserRound, CalendarDays,
 } from 'lucide-react';
-import type { WorkoutType } from '../types';
+import type { User, WorkoutType } from '../types';
 import { WORKOUT_TYPE_LABELS } from '../types';
 import { useAuthStore } from '../store/authStore';
+import api from '../services/api';
+import {
+  SPLIT_TYPES,
+  WEEKDAYS,
+  EXPERIENCE_LABELS,
+  EQUIPMENT_LABELS,
+  buildWorkoutPrompt,
+  getMissingProfileHints,
+  suggestSplitId,
+  type EquipmentId,
+  type ExperienceId,
+  type SplitId,
+  type WeekdayId,
+} from '../lib/buildWorkoutPrompt';
 
 const WORKOUT_TYPES = Object.entries(WORKOUT_TYPE_LABELS) as [WorkoutType, string][];
 
-const SPLIT_TYPES = [
-  { id: 'A', label: 'Treino A (Full Body / 1 dia)' },
-  { id: 'AB', label: 'Treino A/B (2 dias)' },
-  { id: 'ABC', label: 'Treino A/B/C (3 dias)' },
-  { id: 'ABCD', label: 'Treino A/B/C/D (4 dias)' },
-  { id: 'ABCDE', label: 'Treino A/B/C/D/E (5 dias)' },
-  { id: 'ABCDEF', label: 'Treino A/B/C/D/E/F (6 dias)' },
-  { id: 'PPL', label: 'Push/Pull/Legs (3 dias)' },
-  { id: 'PPLPPL', label: 'Push/Pull/Legs (6 dias)' },
-];
-
 export default function PromptGeneratorPage() {
   const navigate = useNavigate();
-  const { user } = useAuthStore();
-  const [splitType, setSplitType] = useState('ABC');
-  const [objective, setObjective] = useState<WorkoutType>('hypertrophy');
-  const [experience, setExperience] = useState('intermediate');
+  const { user, updateUser } = useAuthStore();
+  const [profile, setProfile] = useState<User | null>(user);
+  const [profileLoading, setProfileLoading] = useState(true);
+
+  const [splitType, setSplitType] = useState<SplitId>('ABC');
+  const [objectives, setObjectives] = useState<WorkoutType[]>(['hypertrophy']);
+  const [experience, setExperience] = useState<ExperienceId>(
+    (user?.experience_level as ExperienceId) || 'intermediate',
+  );
   const [duration, setDuration] = useState('60');
-  const [equipment, setEquipment] = useState('full');
+  const [equipment, setEquipment] = useState<EquipmentId>('full');
+  const [weekdays, setWeekdays] = useState<WeekdayId[]>([]);
   const [notes, setNotes] = useState('');
   const [copied, setCopied] = useState(false);
   const [showPrompt, setShowPrompt] = useState(false);
+  const [profileHydrated, setProfileHydrated] = useState(false);
 
-  const generatePrompt = (): string => {
-    const objectiveLabel = WORKOUT_TYPE_LABELS[objective];
-    
-    const equipmentDesc = equipment === 'full' 
-      ? 'completo (barra, halteres, máquinas, polias)'
-      : equipment === 'minimal'
-      ? 'mínimo (apenas halteres e barras)'
-      : 'corpo livre e materiais básicos';
+  const primaryObjective = objectives[0] ?? 'hypertrophy';
+  const secondaryObjectives = objectives.slice(1);
+  const activeProfile = profile || user;
+  const missingHints = getMissingProfileHints(activeProfile);
 
-    const experienceDesc = experience === 'beginner'
-      ? 'iniciante'
-      : experience === 'intermediate'
-      ? 'intermediário'
-      : 'avançado';
+  useEffect(() => {
+    let cancelled = false;
+    setProfileLoading(true);
+    api.get('/auth/profile/')
+      .then((r) => {
+        if (cancelled) return;
+        const data = r.data as User;
+        setProfile(data);
+        updateUser(data);
 
-    const splitDays = splitType.length === 1 ? '1 dia' : `${splitType.length} dias`;
-    const splitLabel = SPLIT_TYPES.find(s => s.id === splitType)?.label || splitType;
-
-    const profileContext = [
-      user?.gender ? `- **Genero do Aluno**: ${user.gender}` : '',
-      user?.experience_level ? `- **Nivel salvo no perfil**: ${user.experience_level}` : '',
-      user?.age ? `- **Idade**: ${user.age}` : '',
-      user?.weight ? `- **Peso**: ${user.weight} kg` : '',
-      user?.height ? `- **Altura**: ${user.height} cm` : '',
-      user?.weekly_training_days ? `- **Dias por semana**: ${user.weekly_training_days}` : '',
-      user?.primary_goal ? `- **Objetivo principal salvo**: ${user.primary_goal}` : '',
-    ].filter(Boolean).join('\n');
-
-    const levelStrategy = experience === 'advanced'
-      ? '- Para avançado: aplicar estratégia de low volume (menos exercícios por sessão, alta intensidade, foco em compostos, 1-2 isoladores estratégicos e maior controle de fadiga).'
-      : experience === 'beginner'
-      ? '- Para iniciante: técnica e aprendizado motor primeiro, volume moderado, evitar falha em todas as séries.'
-      : '- Para intermediário: progressão linear/ondulatória moderada com equilíbrio entre volume e intensidade.';
-
-    return `Você é um personal trainer especializado em criação de programas de treino personalizados.
-
-Preciso que você crie um programa de treino com as seguintes especificações:
-
-📋 ESPECIFICAÇÕES DO TREINO:
-- **Split**: ${splitLabel} (${splitDays} de treino)
-- **Objetivo Principal**: ${objectiveLabel}
-- **Nível de Experiência**: ${experienceDesc}
-- **Duração por Sessão**: aproximadamente ${duration} minutos
-- **Equipamento Disponível**: ${equipmentDesc}
-${notes ? `- **Observações Especiais**: ${notes}` : ''}
-${profileContext ? `\n🧬 DADOS DO PERFIL DO ALUNO:\n${profileContext}` : ''}
-
-🎯 INSTRUÇÕES DE RESPOSTA:
-
-Retorne EXATAMENTE no seguinte formato JSON, sem explicações adicionais:
-
-\`\`\`json
-{
-  "name": "Nome do Treino ${splitType}",
-  "description": "Descrição breve do programa",
-  "workout_type": "${objective}",
-  "days": [
-    {
-      "day": "A",
-      "focus": "Focos musculares do dia A",
-      "exercises": [
-        {
-          "name": "Nome do Exercício",
-          "muscle_group": "chest|back|shoulders|biceps|triceps|legs|glutes|abs|calves|forearms|full_body|cardio",
-          "sets": 3,
-          "reps": 10,
-          "rest_seconds": 60,
-          "weight_kg": 50,
-          "notes": "Opcional: observações sobre a execução"
+        if (!profileHydrated) {
+          if (data.experience_level === 'beginner' || data.experience_level === 'intermediate' || data.experience_level === 'advanced') {
+            setExperience(data.experience_level);
+          }
+          if (data.weekly_training_days && data.weekly_training_days >= 1 && data.weekly_training_days <= 6) {
+            setSplitType(suggestSplitId(data.weekly_training_days));
+          }
+          if (data.primary_goal) {
+            const goalLower = data.primary_goal.toLowerCase();
+            const matched = (Object.keys(WORKOUT_TYPE_LABELS) as WorkoutType[]).filter((key) => {
+              const label = WORKOUT_TYPE_LABELS[key].toLowerCase();
+              return goalLower.includes(label) || goalLower.includes(key);
+            });
+            if (matched.length) setObjectives(matched);
+          }
+          setProfileHydrated(true);
         }
-      ]
-    }
-  ]
-}
-\`\`\`
+      })
+      .catch(() => {
+        if (!cancelled) setProfile(user);
+      })
+      .finally(() => {
+        if (!cancelled) setProfileLoading(false);
+      });
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- hydrate once from profile fetch
+  }, []);
 
-📝 DIRETRIZES:
-- Cada dia deve ter entre 5-12 exercícios
-- Progressão lógica: compostos primeiro, isolados depois
-- Rest periods apropriados para o objetivo (Força: 120-180s, Hipertrofia: 60-90s, Resistência: 30-45s)
-- Volume e intensidade adequados ao nível de experiência
-- Estratégia por nível obrigatória:
-${levelStrategy}
-- Variedade de exercícios dentro dos grupos musculares
-- Considerar a recuperação entre grupos musculares
-- **Nomes dos exercícios**: sempre em PORTUGUÊS do Brasil, o nome mais comum utilizado em academias brasileiras (ex: "Supino Reto", "Rosca Direta", "Leg Press 45°", "Puxada Frontal", "Cadeira Extensora"). Não use tradução literal do inglês.
-${equipment === 'minimal' ? '\n- Adaptar exercícios para o equipamento limitado disponível' : ''}
-
-⚠️ IMPORTANTE:
-- Retorne APENAS o JSON com indentação de 2 espaços, SEM blocos de código markdown (não use as \`\`\`json)
-- Os muscle_group devem ser exatamente um dos valores listados acima
-- Use números realistas para sets, reps e rest_seconds
-- Se não conseguir criar um treino viável com as especificações, retorne um treino padrão bem estruturado`;
+  const toggleObjective = (type: WorkoutType) => {
+    setObjectives((prev) => {
+      if (prev.includes(type)) {
+        if (prev.length === 1) return prev;
+        return prev.filter((t) => t !== type);
+      }
+      return [...prev, type];
+    });
   };
 
-  const prompt = generatePrompt();
+  const toggleWeekday = (id: WeekdayId) => {
+    setWeekdays((prev) => {
+      const next = prev.includes(id) ? prev.filter((d) => d !== id) : [...prev, id];
+      // Keep calendar order (Mon→Sun)
+      return WEEKDAYS.map((d) => d.id).filter((dayId) => next.includes(dayId));
+    });
+  };
+
+  const prompt = useMemo(
+    () =>
+      buildWorkoutPrompt({
+        splitType,
+        objectives,
+        experience,
+        durationMinutes: Number(duration) || 60,
+        equipment,
+        notes,
+        weekdays,
+        user: activeProfile,
+      }),
+    [splitType, objectives, experience, duration, equipment, notes, weekdays, activeProfile],
+  );
 
   const copyToClipboard = async () => {
     try {
@@ -149,9 +138,10 @@ ${equipment === 'minimal' ? '\n- Adaptar exercícios para o equipamento limitado
     document.body.removeChild(element);
   };
 
+  const splitMeta = SPLIT_TYPES.find((s) => s.id === splitType)!;
+
   return (
     <div className="min-h-screen" style={{ background: '#0f0f1a' }}>
-      {/* Header */}
       <div className="sticky top-0 z-30 px-4 py-4"
         style={{ background: 'rgba(15,15,26,0.97)', backdropFilter: 'blur(12px)', borderBottom: '1px solid #2a2a4a' }}>
         <div className="flex items-center gap-3">
@@ -164,17 +154,60 @@ ${equipment === 'minimal' ? '\n- Adaptar exercícios para o equipamento limitado
           </button>
           <div>
             <h1 className="text-xl font-black text-white">Gerador de Prompts</h1>
-            <p className="text-xs" style={{ color: '#94a3b8' }}>Crie treinos com IA</p>
+            <p className="text-xs" style={{ color: '#94a3b8' }}>Prompt personalizado com dados do seu perfil</p>
           </div>
         </div>
       </div>
 
-      {/* Content */}
       <div className="px-4 py-6 max-w-2xl mx-auto">
         {!showPrompt ? (
-          // Formulário
           <div className="space-y-6">
-            {/* Split Type */}
+            {/* Perfil */}
+            <div className="rounded-2xl p-5" style={{ background: '#1a1a2e', border: '1px solid #2a2a4a' }}>
+              <div className="flex items-center justify-between gap-2 mb-3">
+                <div className="flex items-center gap-2">
+                  <UserRound size={20} style={{ color: '#60a5fa' }} />
+                  <label className="text-sm font-bold text-white">Dados do perfil</label>
+                </div>
+                <button
+                  onClick={() => navigate('/profile')}
+                  className="text-xs font-bold px-2 py-1 rounded-lg"
+                  style={{ background: 'rgba(96,165,250,0.15)', color: '#93c5fd' }}
+                >
+                  Editar perfil
+                </button>
+              </div>
+              {profileLoading ? (
+                <p className="text-xs" style={{ color: '#64748b' }}>Carregando perfil…</p>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 gap-2 text-xs" style={{ color: '#cbd5e1' }}>
+                    <p><span style={{ color: '#64748b' }}>Peso:</span> {activeProfile?.weight ? `${activeProfile.weight} kg` : '—'}</p>
+                    <p><span style={{ color: '#64748b' }}>Altura:</span> {activeProfile?.height ? `${activeProfile.height} cm` : '—'}</p>
+                    <p><span style={{ color: '#64748b' }}>Idade:</span> {activeProfile?.age ?? '—'}</p>
+                    <p><span style={{ color: '#64748b' }}>Dias/sem.:</span> {activeProfile?.weekly_training_days ?? '—'}</p>
+                    <p className="col-span-2">
+                      <span style={{ color: '#64748b' }}>Nível:</span>{' '}
+                      {activeProfile?.experience_level
+                        ? EXPERIENCE_LABELS[activeProfile.experience_level as ExperienceId] || activeProfile.experience_level
+                        : '—'}
+                    </p>
+                    {activeProfile?.primary_goal && (
+                      <p className="col-span-2">
+                        <span style={{ color: '#64748b' }}>Objetivo no perfil:</span> {activeProfile.primary_goal}
+                      </p>
+                    )}
+                  </div>
+                  {missingHints.length > 0 && (
+                    <p className="text-xs mt-3" style={{ color: '#fbbf24' }}>
+                      Complete no perfil para personalizar mais: {missingHints.join(', ')}.
+                    </p>
+                  )}
+                </>
+              )}
+            </div>
+
+            {/* Split */}
             <div className="rounded-2xl p-5" style={{ background: '#1a1a2e', border: '1px solid #2a2a4a' }}>
               <div className="flex items-center gap-2 mb-4">
                 <Zap size={20} style={{ color: '#f59e0b' }} />
@@ -189,48 +222,105 @@ ${equipment === 'minimal' ? '\n- Adaptar exercícios para o equipamento limitado
                     style={{
                       background: splitType === split.id ? '#ff8a1f' : '#2a2a4a',
                       color: splitType === split.id ? 'white' : '#94a3b8',
-                      border: splitType === split.id ? '1px solid #ff8a1f' : '1px solid #3a3a5a'
+                      border: splitType === split.id ? '1px solid #ff8a1f' : '1px solid #3a3a5a',
                     }}
                   >
                     <div className="font-black">{split.id}</div>
-                    <div className="text-xs mt-1 opacity-75">{split.label.split('(')[1]?.replace(')', '')}</div>
+                    <div className="text-xs mt-1 opacity-75">{split.days} dia(s)</div>
                   </button>
                 ))}
               </div>
             </div>
 
-            {/* Objective */}
+            {/* Weekdays */}
             <div className="rounded-2xl p-5" style={{ background: '#1a1a2e', border: '1px solid #2a2a4a' }}>
-              <div className="flex items-center gap-2 mb-4">
-                <Target size={20} style={{ color: '#10b981' }} />
-                <label className="text-sm font-bold text-white">Objetivo Principal</label>
+              <div className="flex items-center gap-2 mb-2">
+                <CalendarDays size={20} style={{ color: '#a78bfa' }} />
+                <label className="text-sm font-bold text-white">Dias da semana</label>
               </div>
+              <p className="text-xs mb-3" style={{ color: '#94a3b8' }}>
+                Quais dias você pretende treinar? (opcional, melhora o encaixe do split)
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {WEEKDAYS.map((day) => {
+                  const selected = weekdays.includes(day.id);
+                  return (
+                    <button
+                      key={day.id}
+                      onClick={() => toggleWeekday(day.id)}
+                      className="px-3 py-2 rounded-xl text-xs font-bold transition-all"
+                      style={{
+                        background: selected ? 'rgba(167,139,250,0.25)' : '#2a2a4a',
+                        color: selected ? '#ddd6fe' : '#94a3b8',
+                        border: `1px solid ${selected ? '#a78bfa' : '#3a3a5a'}`,
+                      }}
+                    >
+                      {day.short}
+                    </button>
+                  );
+                })}
+              </div>
+              {weekdays.length > 0 && weekdays.length !== splitMeta.days && (
+                <p className="text-xs mt-3" style={{ color: '#fbbf24' }}>
+                  Você marcou {weekdays.length} dia(s), mas o split tem {splitMeta.days} sessão(ões). O prompt pedirá à IA para encaixar.
+                </p>
+              )}
+            </div>
+
+            {/* Objectives */}
+            <div className="rounded-2xl p-5" style={{ background: '#1a1a2e', border: '1px solid #2a2a4a' }}>
+              <div className="flex items-center gap-2 mb-2">
+                <Target size={20} style={{ color: '#10b981' }} />
+                <label className="text-sm font-bold text-white">Objetivos</label>
+              </div>
+              <p className="text-xs mb-4" style={{ color: '#94a3b8' }}>
+                Toque para selecionar. O primeiro vira o principal; os seguintes são secundários.
+              </p>
               <div className="grid grid-cols-2 gap-2">
-                {WORKOUT_TYPES.map(([type, label]) => (
-                  <button
-                    key={type}
-                    onClick={() => setObjective(type)}
-                    className="p-3 rounded-xl text-sm font-semibold transition-all text-left"
-                    style={{
-                      background: objective === type ? '#10b981' : '#2a2a4a',
-                      color: objective === type ? 'white' : '#94a3b8',
-                      border: objective === type ? '1px solid #10b981' : '1px solid #3a3a5a'
-                    }}
-                  >
-                    {label}
-                  </button>
-                ))}
+                {WORKOUT_TYPES.map(([type, label]) => {
+                  const index = objectives.indexOf(type);
+                  const selected = index >= 0;
+                  const isPrimary = index === 0;
+                  return (
+                    <button
+                      key={type}
+                      onClick={() => toggleObjective(type)}
+                      className="p-3 rounded-xl text-sm font-semibold transition-all text-left"
+                      style={{
+                        background: selected
+                          ? (isPrimary ? '#10b981' : 'rgba(16,185,129,0.35)')
+                          : '#2a2a4a',
+                        color: selected ? 'white' : '#94a3b8',
+                        border: selected ? '1px solid #10b981' : '1px solid #3a3a5a',
+                      }}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span>{label}</span>
+                        {selected && (
+                          <span
+                            className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded"
+                            style={{
+                              background: isPrimary ? 'rgba(0,0,0,0.25)' : 'rgba(16,185,129,0.35)',
+                              color: isPrimary ? '#fff' : '#a7f3d0',
+                            }}
+                          >
+                            {isPrimary ? 'Principal' : `${index + 1}º`}
+                          </span>
+                        )}
+                      </div>
+                    </button>
+                  );
+                })}
               </div>
             </div>
 
             {/* Experience & Duration */}
             <div className="grid grid-cols-2 gap-3">
-              {/* Experience */}
               <div className="rounded-2xl p-4" style={{ background: '#1a1a2e', border: '1px solid #2a2a4a' }}>
                 <label className="text-xs font-bold text-white uppercase tracking-wider block mb-3">Experiência</label>
                 <select
                   value={experience}
-                  onChange={(e) => setExperience(e.target.value)}
+                  onChange={(e) => setExperience(e.target.value as ExperienceId)}
                   className="w-full px-3 py-2 rounded-lg text-sm font-semibold outline-none"
                   style={{ background: '#2a2a4a', color: 'white', border: '1px solid #3a3a5a' }}
                 >
@@ -240,7 +330,6 @@ ${equipment === 'minimal' ? '\n- Adaptar exercícios para o equipamento limitado
                 </select>
               </div>
 
-              {/* Duration */}
               <div className="rounded-2xl p-4" style={{ background: '#1a1a2e', border: '1px solid #2a2a4a' }}>
                 <label className="text-xs font-bold text-white uppercase tracking-wider block mb-3">Duração (min)</label>
                 <input
@@ -259,11 +348,11 @@ ${equipment === 'minimal' ? '\n- Adaptar exercícios para o equipamento limitado
             <div className="rounded-2xl p-5" style={{ background: '#1a1a2e', border: '1px solid #2a2a4a' }}>
               <label className="text-xs font-bold text-white uppercase tracking-wider block mb-3">Equipamento</label>
               <div className="grid grid-cols-3 gap-2">
-                {[
-                  { id: 'full', label: 'Completo' },
-                  { id: 'minimal', label: 'Mínimo' },
-                  { id: 'bodyweight', label: 'Corpo Livre' }
-                ].map((eq) => (
+                {([
+                  { id: 'full' as const, label: 'Completo' },
+                  { id: 'minimal' as const, label: 'Mínimo' },
+                  { id: 'bodyweight' as const, label: 'Corpo Livre' },
+                ]).map((eq) => (
                   <button
                     key={eq.id}
                     onClick={() => setEquipment(eq.id)}
@@ -271,7 +360,7 @@ ${equipment === 'minimal' ? '\n- Adaptar exercícios para o equipamento limitado
                     style={{
                       background: equipment === eq.id ? '#ff5a00' : '#2a2a4a',
                       color: equipment === eq.id ? 'white' : '#94a3b8',
-                      border: equipment === eq.id ? '1px solid #ff5a00' : '1px solid #3a3a5a'
+                      border: equipment === eq.id ? '1px solid #ff5a00' : '1px solid #3a3a5a',
                     }}
                   >
                     {eq.label}
@@ -282,18 +371,17 @@ ${equipment === 'minimal' ? '\n- Adaptar exercícios para o equipamento limitado
 
             {/* Notes */}
             <div className="rounded-2xl p-5" style={{ background: '#1a1a2e', border: '1px solid #2a2a4a' }}>
-              <label className="text-xs font-bold text-white uppercase tracking-wider block mb-3">Observações (opcional)</label>
+              <label className="text-xs font-bold text-white uppercase tracking-wider block mb-3">Observações / restrições</label>
               <textarea
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
-                placeholder="Ex: Tenho lesão no ombro, treino 4x/semana, quero ganhar massa..."
+                placeholder="Ex: lesão no ombro, prefiro máquinas, sem agachamento livre, foco em glúteos…"
                 className="w-full px-4 py-3 rounded-xl text-sm outline-none resize-none"
                 style={{ background: '#2a2a4a', color: 'white', border: '1px solid #3a3a5a' }}
                 rows={3}
               />
             </div>
 
-            {/* Botão Gerar */}
             <button
               onClick={() => setShowPrompt(true)}
               className="w-full py-4 rounded-2xl font-bold text-white flex items-center justify-center gap-3 active:scale-95 transition-transform"
@@ -304,31 +392,46 @@ ${equipment === 'minimal' ? '\n- Adaptar exercícios para o equipamento limitado
             </button>
           </div>
         ) : (
-          // Exibição do Prompt
           <div className="space-y-4">
-            {/* Resumo */}
             <div className="rounded-2xl p-5" style={{ background: '#1a1a2e', border: '1px solid #2a2a4a' }}>
-              <h2 className="text-lg font-black text-white mb-3">Resumo das Configurações</h2>
+              <h2 className="text-lg font-black text-white mb-3">Resumo</h2>
               <div className="space-y-2 text-sm" style={{ color: '#cbd5e1' }}>
-                <p><strong>Split:</strong> {SPLIT_TYPES.find(s => s.id === splitType)?.label}</p>
-                <p><strong>Objetivo:</strong> {WORKOUT_TYPE_LABELS[objective]}</p>
-                <p><strong>Experiência:</strong> {experience === 'beginner' ? 'Iniciante' : experience === 'intermediate' ? 'Intermediário' : 'Avançado'}</p>
+                <p><strong>Split:</strong> {splitMeta.label}</p>
+                <p><strong>Objetivo principal:</strong> {WORKOUT_TYPE_LABELS[primaryObjective]}</p>
+                {secondaryObjectives.length > 0 && (
+                  <p>
+                    <strong>Secundários:</strong>{' '}
+                    {secondaryObjectives.map((t) => WORKOUT_TYPE_LABELS[t]).join(', ')}
+                  </p>
+                )}
+                <p><strong>Experiência:</strong> {EXPERIENCE_LABELS[experience]}</p>
                 <p><strong>Duração:</strong> {duration} min</p>
-                <p><strong>Equipamento:</strong> {equipment === 'full' ? 'Completo' : equipment === 'minimal' ? 'Mínimo' : 'Corpo Livre'}</p>
+                <p><strong>Equipamento:</strong> {EQUIPMENT_LABELS[equipment].split('(')[0].trim()}</p>
+                {weekdays.length > 0 && (
+                  <p>
+                    <strong>Dias:</strong>{' '}
+                    {weekdays.map((id) => WEEKDAYS.find((d) => d.id === id)?.short).join(', ')}
+                  </p>
+                )}
+                {activeProfile?.weight && activeProfile?.height && (
+                  <p>
+                    <strong>Perfil:</strong> {activeProfile.weight} kg · {activeProfile.height} cm
+                    {activeProfile.age ? ` · ${activeProfile.age} anos` : ''}
+                  </p>
+                )}
               </div>
             </div>
 
-            {/* Prompt Box */}
             <div className="rounded-2xl p-5" style={{ background: '#1a1a2e', border: '1px solid #2a2a4a' }}>
               <h3 className="text-sm font-bold text-white mb-4">Prompt para IA</h3>
               <div className="relative">
                 <pre
-                  className="w-full p-4 rounded-xl text-xs overflow-x-auto"
+                  className="w-full p-4 rounded-xl text-xs overflow-x-auto whitespace-pre-wrap"
                   style={{
                     background: '#0f0f1a',
                     color: '#94a3b8',
                     border: '1px solid #2a2a4a',
-                    maxHeight: '400px'
+                    maxHeight: '400px',
                   }}
                 >
                   {prompt}
@@ -337,42 +440,28 @@ ${equipment === 'minimal' ? '\n- Adaptar exercícios para o equipamento limitado
                   onClick={copyToClipboard}
                   className="absolute top-2 right-2 p-2 rounded-lg transition-all hover:opacity-80"
                   style={{ background: '#2a2a4a' }}
-                  title="Copiar para clipboard"
+                  title="Copiar"
                 >
                   <Copy size={16} style={{ color: '#10b981' }} />
                 </button>
               </div>
               {copied && (
-                <p className="text-xs mt-2" style={{ color: '#10b981' }}>✓ Copiado para clipboard!</p>
+                <p className="text-xs mt-2" style={{ color: '#10b981' }}>Copiado!</p>
               )}
             </div>
 
-            {/* Instruções */}
             <div className="rounded-2xl p-5" style={{ background: 'rgba(255,138,31,0.1)', border: '1px solid rgba(255,138,31,0.2)' }}>
-              <h3 className="text-sm font-bold text-white mb-3">📋 Como Usar</h3>
+              <h3 className="text-sm font-bold text-white mb-3">Como usar</h3>
               <ol className="text-xs space-y-2" style={{ color: '#cbd5e1' }}>
-                <li className="flex gap-2">
-                  <span className="font-bold" style={{ color: '#ff8a1f' }}>1.</span>
-                  <span>Copie o prompt usando o botão acima</span>
-                </li>
-                <li className="flex gap-2">
-                  <span className="font-bold" style={{ color: '#ff8a1f' }}>2.</span>
-                  <span>Cole em uma das IAs abaixo e envie</span>
-                </li>
-                <li className="flex gap-2">
-                  <span className="font-bold" style={{ color: '#ff8a1f' }}>3.</span>
-                  <span>A IA retornará um JSON — copie a resposta completa</span>
-                </li>
-                <li className="flex gap-2">
-                  <span className="font-bold" style={{ color: '#ff8a1f' }}>4.</span>
-                  <span>Clique em "Importar Treino" e cole o JSON para revisar e importar</span>
-                </li>
+                <li>1. Copie o prompt</li>
+                <li>2. Cole em ChatGPT, Claude, Gemini ou Copilot</li>
+                <li>3. Copie o JSON da resposta (já inclui a ordem com sequence_order)</li>
+                <li>4. Importe em Importar Treino</li>
               </ol>
             </div>
 
-            {/* AI Provider Links */}
             <div className="rounded-2xl p-5" style={{ background: '#1a1a2e', border: '1px solid #2a2a4a' }}>
-              <h3 className="text-sm font-bold text-white mb-3">Abrir IA e colar o prompt</h3>
+              <h3 className="text-sm font-bold text-white mb-3">Abrir IA</h3>
               <div className="grid grid-cols-2 gap-2">
                 {([
                   { name: 'ChatGPT', url: 'https://chatgpt.com/', bg: '#10a37f', abbr: 'GPT' },
@@ -397,10 +486,8 @@ ${equipment === 'minimal' ? '\n- Adaptar exercícios para o equipamento limitado
                   </a>
                 ))}
               </div>
-              <p className="text-xs mt-2" style={{ color: '#475569' }}>Abre em nova aba — cole o prompt copiado</p>
             </div>
 
-            {/* Botões de Ação */}
             <div className="flex gap-3">
               <button
                 onClick={() => setShowPrompt(false)}
@@ -426,25 +513,14 @@ ${equipment === 'minimal' ? '\n- Adaptar exercícios para o equipamento limitado
                 Copiar
               </button>
             </div>
-              {/* Instruções */}
-              <div style={{ background: 'rgba(34, 197, 94, 0.1)', borderLeft: '4px solid #22c55e' }} className="p-4 rounded-lg mt-6 space-y-2">
-                <h3 className="font-bold text-white text-sm">Próximos passos:</h3>
-                <ol className="text-sm space-y-1" style={{ color: '#cbd5e1' }}>
-                  <li>1. Copie o prompt acima</li>
-                  <li>2. Cole em ChatGPT, Claude ou outro IA</li>
-                  <li>3. Copie a resposta em JSON</li>
-                  <li>4. Clique em "Importar Treino" para adicionar ao app</li>
-                </ol>
-              </div>
 
-              {/* Botão Importar */}
-              <button
-                onClick={() => navigate('/workouts/importar')}
-                className="w-full py-3 rounded-xl font-bold text-white flex items-center justify-center gap-2 transition-all active:scale-95"
-                style={{ background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)' }}
-              >
-                📥 Importar Treino
-              </button>
+            <button
+              onClick={() => navigate('/workouts/importar')}
+              className="w-full py-3 rounded-xl font-bold text-white flex items-center justify-center gap-2 transition-all active:scale-95"
+              style={{ background: 'linear-gradient(135deg, #3b82f6, #1d4ed8)' }}
+            >
+              Importar Treino
+            </button>
           </div>
         )}
       </div>

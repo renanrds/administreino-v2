@@ -9,16 +9,16 @@ class ExerciseInline(admin.TabularInline):
 
 @admin.register(Workout)
 class WorkoutAdmin(admin.ModelAdmin):
-    list_display = ['name', 'user', 'workout_type', 'is_active', 'created_at']
-    list_filter = ['workout_type', 'is_active']
-    search_fields = ['name', 'user__email']
+    list_display = ['name', 'user', 'workout_type', 'sequence_group', 'sequence_order', 'is_active', 'created_at']
+    list_filter = ['workout_type', 'is_active', 'sequence_group']
+    search_fields = ['name', 'user__email', 'sequence_group']
     inlines = [ExerciseInline]
 
 
 @admin.register(Exercise)
 class ExerciseAdmin(admin.ModelAdmin):
-    list_display = ['name', 'workout', 'muscle_group', 'sets', 'reps', 'weight_kg']
-    list_filter = ['muscle_group']
+    list_display = ['name', 'workout', 'muscle_group', 'sets', 'reps', 'weight_kg', 'is_active']
+    list_filter = ['muscle_group', 'is_active']
     search_fields = ['name', 'workout__name']
 
 

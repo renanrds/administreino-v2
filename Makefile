@@ -1,141 +1,309 @@
-SHELL := /bin/sh
+SHELL := /bin/bash
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Administreino v2 — Makefile
+# ─────────────────────────────────────────────────────────────────────────────
+
+COMPOSE_DEV  := docker compose -f docker-compose.yml
+COMPOSE_PROD := docker compose -f docker-compose.prod.yml --env-file .env.prod
+
+BACKEND_SERVICE  ?= backend
+FRONTEND_SERVICE ?= frontend
+DB_SERVICE       ?= db
+
+POSTGRES_DB   ?= administreino_db
+POSTGRES_USER ?= admin
+
+RESTORE_FILE ?=
+BACKUP_FILE  ?=
+BACKUPFILE   ?=
+FILE         ?=
+BACKUP_DIR   ?= backups
+
+DOMAIN ?=
+EMAIL  ?=
+
+_B  := \033[1m
+_D  := \033[2m
+_G  := \033[32m
+_Y  := \033[33m
+_C  := \033[36m
+_R  := \033[0m
+
+define SECTION
+	@echo ""
+	@echo -e "$(_C)══════════════════════════════════════════════════════════════$(_R)"
+	@echo -e "$(_B)  Administreino — $(1)$(_R)"
+	@echo -e "$(_C)══════════════════════════════════════════════════════════════$(_R)"
+endef
+
+define CMD
+	@printf "  $(_G)%-24s$(_R) %s\n" "$(1)" "$(2)"
+endef
+
 .DEFAULT_GOAL := help
 
-# Core tooling
-COMPOSE ?= docker compose
+.PHONY: help \
+	dev-build dev-up dev-down dev-restart dev-logs dev-ps dev-clean \
+	prod-build prod-up prod-down prod-restart prod-logs prod-ps \
+	backend-bash frontend-bash db-bash \
+	restore-dev-from-backup backup-dev backup-prod \
+	migrate migrate-prod makemigrations createsuperuser collectstatic \
+	shell test app-logs frontend-logs \
+	prod-migrate prod-createsuperuser prod-collectstatic prod-shell prod-nginx-reload \
+	init-ssl renew-ssl \
+	up down build logs clean \
+	db-dump-clean db-restore-sql shell-backend shell-db shell-frontend \
+	restart restart-backend restart-frontend
 
-# Services (docker-compose.yml)
-BACKEND_SERVICE ?= backend
-FRONTEND_SERVICE ?= frontend
-DB_SERVICE ?= db
+# ─────────────────────────────────────────────────────────────────────────────
+# Ajuda
+# ─────────────────────────────────────────────────────────────────────────────
+help:
+	@echo ""
+	@echo -e "$(_B)  Administreino v2 — treinos e sessões$(_R)"
+	@echo -e "$(_D)  Use: make <comando>  |  make help$(_R)"
+	$(call SECTION,Ambiente Docker)
+	$(call CMD,dev-up,Sobe stack dev em background)
+	$(call CMD,dev-down,Derruba ambiente dev)
+	$(call CMD,dev-restart,Reinicia ambiente dev)
+	$(call CMD,dev-build,Builda imagens Docker)
+	$(call CMD,dev-logs,Logs de todos os serviços)
+	$(call CMD,dev-ps,Lista containers)
+	$(call CMD,dev-clean,Derruba dev + remove volumes)
+	@echo -e "$(_D)  Atalhos: up = dev-up | down = dev-down | build = dev-build | logs = app-logs$(_R)"
+	$(call SECTION,Produção — Docker)
+	@echo -e "  $(_Y)Requer .env.prod na raiz do projeto$(_R)"
+	$(call CMD,prod-build,Builda imagens de produção)
+	$(call CMD,prod-up,Sobe stack prod)
+	$(call CMD,prod-down,Derruba stack prod)
+	$(call CMD,prod-restart,Reinicia stack prod)
+	$(call CMD,prod-logs,Logs de produção)
+	$(call CMD,prod-ps,Lista containers prod)
+	$(call CMD,prod-migrate,Migrations no backend prod)
+	$(call CMD,prod-collectstatic,collectstatic no backend prod)
+	$(call CMD,prod-nginx-reload,Recarrega Nginx (sem downtime))
+	$(call SECTION,Shells e banco)
+	$(call CMD,backend-bash,Shell no container backend)
+	$(call CMD,frontend-bash,Shell no container frontend)
+	$(call CMD,db-bash,psql no Postgres)
+	$(call SECTION,Django)
+	$(call CMD,migrate,Aplica migrations (dev))
+	$(call CMD,migrate-prod,Aplica migrations (prod))
+	$(call CMD,makemigrations,Cria migrations)
+	$(call CMD,createsuperuser,Cria superusuário)
+	$(call CMD,collectstatic,collectstatic (dev))
+	$(call CMD,shell,Django shell)
+	$(call CMD,test,Testes Django (app workouts))
+	$(call SECTION,Backup e restore)
+	@echo -e "  $(_G)restore-dev-from-backup$(_R)  BACKUP_FILE=backups/dump.sql"
+	$(call CMD,backup-dev,Gera dump clean em backups/)
+	$(call CMD,backup-prod,Dump clean do Postgres de produção)
+	$(call SECTION,SSL)
+	@echo -e "  $(_G)init-ssl$(_R)   DOMAIN=app.exemplo.com EMAIL=admin@exemplo.com"
+	$(call CMD,renew-ssl,Renova certificado Let's Encrypt)
+	$(call SECTION,Logs)
+	$(call CMD,app-logs,Logs do backend (dev))
+	$(call CMD,frontend-logs,Logs do frontend (dev))
+	@echo -e "$(_D)  Dev: http://localhost:5173  |  API: http://localhost:8000  |  Docs: /api/docs/$(_R)"
+	@echo ""
 
-# Database access (inside DB container)
-DB_USER ?= admin
-DB_NAME ?= administreino_db
-DB_PASSWORD_ENV ?= POSTGRES_PASSWORD
+# ─────────────────────────────────────────────────────────────────────────────
+# Ambiente de desenvolvimento
+# ─────────────────────────────────────────────────────────────────────────────
+dev-build:
+	$(COMPOSE_DEV) build
 
-# Backup settings
-BACKUP_DIR ?= backups
-DUMP_FILE ?= dump_$(shell date +%Y%m%d_%H%M%S).sql
-FILE ?=
+dev-up:
+	$(COMPOSE_DEV) up -d --build
 
-.PHONY: \
-	help \
-	up up-d down build logs ps restart restart-backend restart-frontend clean \
-	migrate makemigrations createsuperuser shell-backend shell-db shell-frontend \
-	db-dump-clean db-restore-sql
+dev-down:
+	$(COMPOSE_DEV) down
 
-help: ## Mostra esta ajuda
-	@awk 'BEGIN {FS = ":.*## "; printf "\nComandos disponiveis:\n\n"} /^[a-zA-Z0-9_.-]+:.*## / {printf "  %-20s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
-	@printf "\n"
+dev-restart: dev-down dev-up
 
-up: ## Sobe os containers em foreground
-	$(COMPOSE) up
+dev-logs:
+	$(COMPOSE_DEV) logs -f
 
-up-d: ## Sobe os containers em background
-	$(COMPOSE) up -d
+dev-ps:
+	$(COMPOSE_DEV) ps
 
-down: ## Derruba os containers
-	$(COMPOSE) down
+dev-clean:
+	$(COMPOSE_DEV) down -v --remove-orphans
 
-build: ## Rebuilda as imagens
-	$(COMPOSE) build
+up: dev-up
+down: dev-down
+build: dev-build
+logs: app-logs
+clean: dev-clean
+restart: dev-restart
 
-logs: ## Mostra logs em tempo real
-	$(COMPOSE) logs -f
+restart-backend:
+	$(COMPOSE_DEV) restart $(BACKEND_SERVICE)
 
-ps: ## Lista status dos containers
-	$(COMPOSE) ps
+restart-frontend:
+	$(COMPOSE_DEV) restart $(FRONTEND_SERVICE)
 
-restart: ## Reinicia todos os servicos
-	$(COMPOSE) restart
+# ─────────────────────────────────────────────────────────────────────────────
+# Produção
+# ─────────────────────────────────────────────────────────────────────────────
+prod-build:
+	@test -f .env.prod || (echo "Erro: crie .env.prod na raiz do projeto" && exit 1)
+	$(COMPOSE_PROD) build --no-cache
 
-restart-backend: ## Reinicia apenas o backend
-	$(COMPOSE) restart $(BACKEND_SERVICE)
+prod-up:
+	@test -f .env.prod || (echo "Erro: crie .env.prod na raiz do projeto" && exit 1)
+	$(COMPOSE_PROD) up -d --build
 
-restart-frontend: ## Reinicia apenas o frontend
-	$(COMPOSE) restart $(FRONTEND_SERVICE)
+prod-down:
+	@test -f .env.prod || (echo "Erro: crie .env.prod na raiz do projeto" && exit 1)
+	$(COMPOSE_PROD) down
 
-clean: ## Remove containers, volumes e orfaos
-	$(COMPOSE) down -v --remove-orphans
+prod-restart: prod-down prod-up
 
-migrate: ## Executa migracoes Django
-	$(COMPOSE) exec $(BACKEND_SERVICE) python manage.py migrate
+prod-logs:
+	@test -f .env.prod || (echo "Erro: crie .env.prod na raiz do projeto" && exit 1)
+	$(COMPOSE_PROD) logs -f
 
-makemigrations: ## Gera novas migracoes Django
-	$(COMPOSE) exec $(BACKEND_SERVICE) python manage.py makemigrations
+prod-ps:
+	@test -f .env.prod || (echo "Erro: crie .env.prod na raiz do projeto" && exit 1)
+	$(COMPOSE_PROD) ps
 
-createsuperuser: ## Cria superusuario Django
-	$(COMPOSE) exec $(BACKEND_SERVICE) python manage.py createsuperuser
+prod-migrate migrate-prod:
+	@test -f .env.prod || (echo "Erro: crie .env.prod na raiz do projeto" && exit 1)
+	$(COMPOSE_PROD) exec $(BACKEND_SERVICE) python manage.py migrate --noinput
 
-shell-backend: ## Abre shell Django
-	$(COMPOSE) exec $(BACKEND_SERVICE) python manage.py shell
+prod-createsuperuser:
+	@test -f .env.prod || (echo "Erro: crie .env.prod na raiz do projeto" && exit 1)
+	$(COMPOSE_PROD) exec $(BACKEND_SERVICE) python manage.py createsuperuser
 
-shell-db: ## Abre shell psql no banco
-	$(COMPOSE) exec $(DB_SERVICE) psql -U $(DB_USER) -d $(DB_NAME)
+prod-collectstatic:
+	@test -f .env.prod || (echo "Erro: crie .env.prod na raiz do projeto" && exit 1)
+	$(COMPOSE_PROD) exec $(BACKEND_SERVICE) python manage.py collectstatic --no-input
 
-shell-frontend: ## Abre shell do container frontend
-	$(COMPOSE) exec $(FRONTEND_SERVICE) sh
+prod-shell:
+	@test -f .env.prod || (echo "Erro: crie .env.prod na raiz do projeto" && exit 1)
+	$(COMPOSE_PROD) exec $(BACKEND_SERVICE) python manage.py shell
 
-db-dump-clean: ## Gera dump SQL clean em backups/ (DROP/IF EXISTS, sem owner/ACL)
-	@mkdir -p $(BACKUP_DIR)
-	@echo "Gerando dump em $(BACKUP_DIR)/$(DUMP_FILE)..."
-	@$(COMPOSE) exec -T $(DB_SERVICE) sh -c 'pg_dump -U "$(DB_USER)" -d "$(DB_NAME)" --clean --if-exists --no-owner --no-privileges --encoding=UTF8' > "$(BACKUP_DIR)/$(DUMP_FILE)"
-	@echo "Dump criado: $(BACKUP_DIR)/$(DUMP_FILE)"
+prod-nginx-reload:
+	@test -f .env.prod || (echo "Erro: crie .env.prod na raiz do projeto" && exit 1)
+	$(COMPOSE_PROD) exec nginx nginx -s reload
 
-db-restore-sql: ## Restaura banco a partir de FILE=...sql
-	@test -n "$(FILE)" || (echo "Informe FILE. Exemplo: make db-restore-sql FILE=backups/dump_20260401_220000.sql" && exit 1)
-	@test -f "$(FILE)" || (echo "Arquivo nao encontrado: $(FILE)" && exit 1)
-	@echo "Restaurando banco a partir de $(FILE)..."
-	@cat "$(FILE)" | $(COMPOSE) exec -T $(DB_SERVICE) sh -c 'psql -v ON_ERROR_STOP=1 -U "$(DB_USER)" -d "$(DB_NAME)"'
-	@echo "Restore concluido com sucesso."
+# ─────────────────────────────────────────────────────────────────────────────
+# Shells
+# ─────────────────────────────────────────────────────────────────────────────
+backend-bash:
+	$(COMPOSE_DEV) exec $(BACKEND_SERVICE) bash
 
-# ─── Produção (AWS / EC2) ────────────────────────────────────────────────────
-PROD_COMPOSE ?= docker compose -f docker-compose.prod.yml
+frontend-bash:
+	$(COMPOSE_DEV) exec $(FRONTEND_SERVICE) sh
 
-prod-build:          ## [PROD] Build das imagens de producao (backend + nginx multi-stage)
-	$(PROD_COMPOSE) build --no-cache
+db-bash:
+	$(COMPOSE_DEV) exec $(DB_SERVICE) psql -U "$(POSTGRES_USER)" -d "$(POSTGRES_DB)"
 
-prod-up:             ## [PROD] Sobe todos os servicos em background
-	$(PROD_COMPOSE) up -d
+shell-backend: backend-bash
+shell-frontend: frontend-bash
+shell-db: db-bash
 
-prod-down:           ## [PROD] Para todos os servicos
-	$(PROD_COMPOSE) down
+# ─────────────────────────────────────────────────────────────────────────────
+# Backup / restore
+# ─────────────────────────────────────────────────────────────────────────────
+backup-dev:
+	@set -euo pipefail; \
+	mkdir -p "$(BACKUP_DIR)"; \
+	backup_file="$(BACKUP_DIR)/administreino_$$(date +%Y%m%d_%H%M%S).sql"; \
+	echo "Gerando dump em $$backup_file ..."; \
+	$(COMPOSE_DEV) exec -T $(DB_SERVICE) \
+		pg_dump -U "$(POSTGRES_USER)" -d "$(POSTGRES_DB)" --clean --if-exists --no-owner --no-privileges --encoding=UTF8 \
+		> "$$backup_file"; \
+	cp "$$backup_file" "$(BACKUP_DIR)/latest_dev.sql"; \
+	echo "Backup pronto: $$backup_file"; \
+	echo "Cópia atual: $(BACKUP_DIR)/latest_dev.sql"
 
-prod-logs:           ## [PROD] Acompanha logs em tempo real
-	$(PROD_COMPOSE) logs -f
+db-dump-clean: backup-dev
 
-prod-ps:             ## [PROD] Status dos containers
-	$(PROD_COMPOSE) ps
+backup-prod:
+	@set -euo pipefail; \
+	test -f .env.prod || (echo "Erro: crie .env.prod na raiz do projeto" && exit 1); \
+	mkdir -p "$(BACKUP_DIR)"; \
+	backup_file="$(BACKUP_DIR)/administreino_prod_$$(date +%Y%m%d_%H%M%S).sql"; \
+	POSTGRES_USER_PROD=$$($(COMPOSE_PROD) exec -T $(DB_SERVICE) printenv POSTGRES_USER | tr -d '\r'); \
+	POSTGRES_DB_PROD=$$($(COMPOSE_PROD) exec -T $(DB_SERVICE) printenv POSTGRES_DB | tr -d '\r'); \
+	echo "Gerando dump de produção em $$backup_file ..."; \
+	$(COMPOSE_PROD) exec -T $(DB_SERVICE) \
+		pg_dump -U "$$POSTGRES_USER_PROD" -d "$$POSTGRES_DB_PROD" --clean --if-exists --no-owner --no-privileges --encoding=UTF8 \
+		> "$$backup_file"; \
+	cp "$$backup_file" "$(BACKUP_DIR)/latest_prod.sql"; \
+	echo "Backup produção: $$backup_file"; \
+	echo "Cópia atual: $(BACKUP_DIR)/latest_prod.sql"
 
-prod-restart:        ## [PROD] Reinicia todos os servicos
-	$(PROD_COMPOSE) restart
+restore-dev-from-backup:
+	@set -euo pipefail; \
+	sql_file="$(or $(RESTORE_FILE),$(BACKUP_FILE),$(BACKUPFILE),$(FILE))"; \
+	if [[ -z "$$sql_file" ]]; then \
+		echo "Erro: informe o dump com BACKUP_FILE=backups/seu_dump.sql"; \
+		echo "Exemplo: make restore-dev-from-backup BACKUP_FILE=backups/latest_dev.sql"; \
+		exit 1; \
+	fi; \
+	if [[ ! -f "$$sql_file" ]]; then \
+		echo "Erro: arquivo SQL não encontrado: $$sql_file"; \
+		exit 1; \
+	fi; \
+	echo "Limpando schema public do banco Administreino..."; \
+	$(COMPOSE_DEV) exec -T $(DB_SERVICE) psql -v ON_ERROR_STOP=1 -U "$(POSTGRES_USER)" -d "$(POSTGRES_DB)" \
+		-c "DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public; GRANT ALL ON SCHEMA public TO $(POSTGRES_USER); GRANT ALL ON SCHEMA public TO public;"; \
+	echo "Restaurando $$sql_file (ignorando OWNER/GRANT de roles ausentes)..."; \
+	sed -E \
+		-e '/^ALTER .* OWNER TO /d' \
+		-e '/^GRANT /d' \
+		-e '/^REVOKE /d' \
+		"$$sql_file" | \
+	$(COMPOSE_DEV) exec -T $(DB_SERVICE) psql -v ON_ERROR_STOP=1 -U "$(POSTGRES_USER)" -d "$(POSTGRES_DB)"; \
+	echo "Aplicando migrations após restore..."; \
+	$(COMPOSE_DEV) exec -T $(BACKEND_SERVICE) python manage.py migrate --noinput; \
+	echo "Restore finalizado."
 
-prod-migrate:        ## [PROD] Executa migrate no container backend
-	$(PROD_COMPOSE) exec backend python manage.py migrate
+db-restore-sql: restore-dev-from-backup
 
-prod-createsuperuser: ## [PROD] Cria superusuario Django
-	$(PROD_COMPOSE) exec backend python manage.py createsuperuser
+# ─────────────────────────────────────────────────────────────────────────────
+# Django
+# ─────────────────────────────────────────────────────────────────────────────
+makemigrations:
+	$(COMPOSE_DEV) exec $(BACKEND_SERVICE) python manage.py makemigrations
 
-prod-collectstatic:  ## [PROD] Executa collectstatic manualmente
-	$(PROD_COMPOSE) exec backend python manage.py collectstatic --no-input
+migrate:
+	$(COMPOSE_DEV) exec $(BACKEND_SERVICE) python manage.py migrate --noinput
 
-prod-nginx-reload:   ## [PROD] Recarrega Nginx sem downtime (ex: apos renovar SSL)
-	$(PROD_COMPOSE) exec nginx nginx -s reload
+createsuperuser:
+	$(COMPOSE_DEV) exec $(BACKEND_SERVICE) python manage.py createsuperuser
 
-prod-shell:          ## [PROD] Shell Django no backend
-	$(PROD_COMPOSE) exec backend python manage.py shell
+collectstatic:
+	$(COMPOSE_DEV) exec $(BACKEND_SERVICE) python manage.py collectstatic --noinput
 
-prod-db-dump:        ## [PROD] Dump do banco de producao em backups/
-	@mkdir -p $(BACKUP_DIR)
-	@$(PROD_COMPOSE) exec -T db sh -c 'pg_dump -U "$(DB_USER)" -d "$(DB_NAME)" --clean --if-exists --no-owner --no-privileges --encoding=UTF8' > "$(BACKUP_DIR)/$(DUMP_FILE)"
-	@echo "Dump criado: $(BACKUP_DIR)/$(DUMP_FILE)"
+shell:
+	$(COMPOSE_DEV) exec $(BACKEND_SERVICE) python manage.py shell
 
-init-ssl:            ## [PROD] Configura SSL Let's Encrypt — uso: make init-ssl DOMAIN=x.com EMAIL=y@z.com
+test:
+	$(COMPOSE_DEV) exec -T $(BACKEND_SERVICE) python manage.py test workouts --noinput
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Logs
+# ─────────────────────────────────────────────────────────────────────────────
+app-logs:
+	$(COMPOSE_DEV) logs -f $(BACKEND_SERVICE)
+
+frontend-logs:
+	$(COMPOSE_DEV) logs -f $(FRONTEND_SERVICE)
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SSL (Let's Encrypt)
+# ─────────────────────────────────────────────────────────────────────────────
+init-ssl:
 	@test -n "$(DOMAIN)" || (echo "ERRO: Informe DOMAIN. Exemplo: make init-ssl DOMAIN=app.meusite.com EMAIL=admin@meusite.com" && exit 1)
 	@test -n "$(EMAIL)"  || (echo "ERRO: Informe EMAIL.  Exemplo: make init-ssl DOMAIN=app.meusite.com EMAIL=admin@meusite.com" && exit 1)
-	@./scripts/init-ssl.sh $(DOMAIN) $(EMAIL)
+	@./scripts/init-ssl.sh "$(DOMAIN)" "$(EMAIL)"
 
-renew-ssl:           ## [PROD] Renova certificado SSL (use no cron: 0 12 * * *)
-	$(PROD_COMPOSE) run --rm certbot renew
-	$(PROD_COMPOSE) exec nginx nginx -s reload
+renew-ssl:
+	@test -f .env.prod || (echo "Erro: crie .env.prod na raiz do projeto" && exit 1)
+	$(COMPOSE_PROD) run --rm certbot renew
+	$(COMPOSE_PROD) exec nginx nginx -s reload

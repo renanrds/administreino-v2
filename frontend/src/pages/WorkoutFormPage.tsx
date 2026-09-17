@@ -1,12 +1,19 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft, Plus, Trash2, Save, Loader2, GripVertical,
   Dumbbell, Timer, RotateCcw, Weight
 } from 'lucide-react';
-import api from '../services/api';
-import type { Workout, MuscleGroup, WorkoutType } from '../types';
+import type { MuscleGroup, WorkoutType } from '../types';
 import { MUSCLE_GROUP_LABELS, WORKOUT_TYPE_LABELS } from '../types';
+import {
+  createWorkout,
+  fetchWorkout,
+  formatApiError,
+  updateWorkout,
+  workoutKeys,
+} from '../lib/workoutsApi';
 
 const MUSCLE_GROUPS = Object.entries(MUSCLE_GROUP_LABELS) as [MuscleGroup, string][];
 const WORKOUT_TYPES = Object.entries(WORKOUT_TYPE_LABELS) as [WorkoutType, string][];
@@ -140,37 +147,78 @@ const parseRepsInput = (rawValue: string): { reps: number; min_reps: number; max
 export default function WorkoutFormPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const isEdit = Boolean(id);
 
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
   const [workoutType, setWorkoutType] = useState<WorkoutType>('hypertrophy');
   const [exercises, setExercises] = useState<ExerciseForm[]>([defaultExercise()]);
-  const [loading, setLoading] = useState(false);
-  const [saving, setSaving] = useState(false);
-  
+  const [hydrated, setHydrated] = useState(!isEdit);
+
   // Estado para controlar qual input de exercício está com foco para exibir as sugestões
   const [focusedExerciseIndex, setFocusedExerciseIndex] = useState<number | null>(null);
 
+  const workoutQuery = useQuery({
+    queryKey: workoutKeys.detail(id!),
+    queryFn: () => fetchWorkout(id!),
+    enabled: isEdit,
+  });
+
   useEffect(() => {
-    if (isEdit) {
-      setLoading(true);
-      api.get(`/workouts/${id}/`).then((r) => {
-        const w: Workout = r.data;
-        setName(w.name);
-        setDescription(w.description || '');
-        setWorkoutType(w.workout_type);
-        setExercises(w.exercises.map((e) => ({
-          id: e.id, name: e.name, muscle_group: e.muscle_group,
-          sets: e.sets,
-          reps_input: e.reps_display || ((e.min_reps && e.max_reps && e.min_reps !== e.max_reps) ? `${e.min_reps}-${e.max_reps}` : `${e.reps}`),
-          rest_seconds: e.rest_seconds,
-          weight_kg: e.weight_kg?.toString() || '', notes: e.notes || '',
-          order: e.order
-        })));
-      }).finally(() => setLoading(false));
-    }
-  }, [id]);
+    if (!workoutQuery.data) return;
+    const w = workoutQuery.data;
+    setName(w.name);
+    setDescription(w.description || '');
+    setWorkoutType(w.workout_type);
+    setExercises(w.exercises.map((e) => ({
+      id: e.id, name: e.name, muscle_group: e.muscle_group,
+      sets: e.sets,
+      reps_input: e.reps_display || ((e.min_reps && e.max_reps && e.min_reps !== e.max_reps) ? `${e.min_reps}-${e.max_reps}` : `${e.reps}`),
+      rest_seconds: e.rest_seconds,
+      weight_kg: e.weight_kg?.toString() || '', notes: e.notes || '',
+      order: e.order
+    })));
+    setHydrated(true);
+  }, [workoutQuery.data]);
+
+  const saveMutation = useMutation({
+    mutationFn: async () => {
+      const payloadExercises = exercises.map((ex, i) => {
+        const parsedReps = parseRepsInput(ex.reps_input)!;
+        return {
+          ...(ex.id ? { id: ex.id } : {}),
+          name: ex.name.trim(),
+          muscle_group: ex.muscle_group,
+          sets: ex.sets,
+          ...parsedReps,
+          rest_seconds: ex.rest_seconds,
+          weight_kg: ex.weight_kg ? Number(ex.weight_kg) : null,
+          notes: ex.notes || '',
+          order: i,
+        };
+      });
+
+      const payload = {
+        name: name.trim(),
+        description,
+        workout_type: workoutType,
+        exercises: payloadExercises,
+      };
+
+      if (isEdit && id) {
+        return updateWorkout(id, payload);
+      }
+      return createWorkout(payload);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: workoutKeys.all });
+      navigate('/workouts');
+    },
+    onError: (err: any) => {
+      alert(formatApiError(err, 'Erro ao salvar treino.'));
+    },
+  });
 
   const addExercise = () => {
     setExercises([...exercises, { ...defaultExercise(), order: exercises.length }]);
@@ -207,7 +255,7 @@ export default function WorkoutFormPage() {
     setFocusedExerciseIndex(null); // Fecha o dropdown
   };
 
-  const handleSave = async () => {
+  const handleSave = () => {
     if (!name.trim()) return alert('Informe o nome do treino.');
     if (exercises.some((e) => !e.name.trim())) return alert('Todos os exercícios precisam de nome.');
 
@@ -217,41 +265,11 @@ export default function WorkoutFormPage() {
       }
     }
 
-    setSaving(true);
-    try {
-      let workoutId = id;
-
-      if (isEdit) {
-        await api.patch(`/workouts/${id}/`, { name, description, workout_type: workoutType });
-      } else {
-        const { data } = await api.post('/workouts/', { name, description, workout_type: workoutType });
-        workoutId = data.id;
-      }
-
-      // Salvar exercícios
-      for (let i = 0; i < exercises.length; i++) {
-        const parsedReps = parseRepsInput(exercises[i].reps_input)!;
-        const exPayload = {
-          ...exercises[i],
-          ...parsedReps,
-          order: i,
-          weight_kg: exercises[i].weight_kg || null,
-        };
-
-        if (exercises[i].id) {
-          await api.patch(`/exercises/${exercises[i].id}/`, exPayload);
-        } else {
-          await api.post(`/workouts/${workoutId}/exercises/`, exPayload);
-        }
-      }
-
-      navigate('/workouts');
-    } catch (err: any) {
-      alert(err.response?.data?.detail || 'Erro ao salvar treino.');
-    } finally {
-      setSaving(false);
-    }
+    saveMutation.mutate();
   };
+
+  const saving = saveMutation.isPending;
+  const loading = isEdit && (!hydrated || workoutQuery.isLoading);
 
   if (loading) {
     return (
@@ -468,6 +486,20 @@ export default function WorkoutFormPage() {
                     onChange={(e) => updateExercise(idx, 'weight_kg', e.target.value)}
                     placeholder="Opcional"
                     className="w-full px-4 py-2.5 rounded-xl text-white placeholder-slate-500 outline-none text-sm"
+                    style={{ background: '#0f0f1a', border: '1px solid #2a2a4a' }} />
+                </div>
+
+                {/* Observações */}
+                <div>
+                  <label className="block text-xs font-semibold mb-1 uppercase tracking-wider" style={{ color: '#94a3b8' }}>
+                    Observações
+                  </label>
+                  <textarea
+                    value={ex.notes}
+                    onChange={(e) => updateExercise(idx, 'notes', e.target.value)}
+                    placeholder="Dicas de execução, tempo sob tensão, etc."
+                    rows={2}
+                    className="w-full px-4 py-2.5 rounded-xl text-white placeholder-slate-500 outline-none text-sm resize-none"
                     style={{ background: '#0f0f1a', border: '1px solid #2a2a4a' }} />
                 </div>
               </div>

@@ -36,6 +36,8 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
             'username': self.user.username,
             'first_name': self.user.first_name,
             'last_name': self.user.last_name,
+            'weight': float(self.user.weight) if self.user.weight is not None else None,
+            'height': float(self.user.height) if self.user.height is not None else None,
             'wellhub_enabled': self.user.wellhub_enabled,
             'gym_app_preference': self.user.gym_app_preference,
             'gender': self.user.gender,
@@ -43,6 +45,7 @@ class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
             'age': self.user.age,
             'primary_goal': self.user.primary_goal,
             'weekly_training_days': self.user.weekly_training_days,
+            'bio': self.user.bio,
             'terms_accepted': self.user.terms_accepted,
         }
         return data

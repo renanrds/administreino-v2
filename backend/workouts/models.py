@@ -1,5 +1,6 @@
 from django.db import models
 from django.contrib.auth import get_user_model
+from django.db.models import Q
 from django.utils import timezone
 
 User = get_user_model()
@@ -37,20 +38,38 @@ class Workout(models.Model):
     description = models.TextField(blank=True, default="")
     workout_type = models.CharField(max_length=20, choices=WorkoutType.choices, default=WorkoutType.HYPERTROPHY)
     is_active = models.BooleanField(default=True)
+    # Ciclo de treinos: mesmo sequence_group + sequence_order define o "próximo" recomendado.
+    sequence_group = models.CharField(
+        max_length=120,
+        blank=True,
+        default="",
+        help_text="Nome do ciclo/programa (ex.: Hipertrofia ABC). Vazio = grupo Geral.",
+    )
+    sequence_order = models.PositiveIntegerField(
+        default=0,
+        help_text="Ordem no ciclo (1, 2, 3…). 0 = sem ordem explícita (cai no fim).",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         verbose_name = "Treino"
         verbose_name_plural = "Treinos"
-        ordering = ["-created_at"]
+        ordering = ["sequence_order", "name", "-created_at"]
+        indexes = [
+            models.Index(fields=["user", "is_active"], name="workout_user_active_idx"),
+            models.Index(
+                fields=["user", "is_active", "sequence_group", "sequence_order"],
+                name="workout_user_seq_idx",
+            ),
+        ]
 
     def __str__(self):
         return f"{self.user.username} - {self.name}"
 
     @property
-    def total_exercises(self):
-        return self.exercises.count()
+    def effective_sequence_group(self):
+        return (self.sequence_group or "").strip() or "Geral"
 
 
 class Exercise(models.Model):
@@ -66,12 +85,19 @@ class Exercise(models.Model):
     weight_kg = models.DecimalField(max_digits=6, decimal_places=2, null=True, blank=True)
     notes = models.TextField(blank=True, default="")
     order = models.PositiveIntegerField(default=0)
+    is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
         verbose_name = "Exercicio"
         verbose_name_plural = "Exercicios"
         ordering = ["order", "created_at"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(min_reps__isnull=True) | Q(max_reps__isnull=True) | Q(min_reps__lte=models.F("max_reps")),
+                name="exercise_min_reps_lte_max_reps",
+            ),
+        ]
 
     def __str__(self):
         return f"{self.workout.name} - {self.name}"
@@ -122,8 +148,8 @@ class WorkoutSession(models.Model):
             return
         self.workout_name_snapshot = self.workout.name
         self.workout_type_snapshot = self.workout.workout_type
-        exercises = self.workout.exercises.all()
-        self.planned_exercises_count = exercises.count()
+        exercises = list(self.workout.exercises.filter(is_active=True))
+        self.planned_exercises_count = len(exercises)
         self.planned_sets_count = sum(ex.sets for ex in exercises)
 
     def update_aggregates(self):
