@@ -25,7 +25,7 @@ API: `/api/moneyger/market-lists/` (+ `start`, `complete`, `cancel`, `to-transac
 ## Contas
 
 - Dinheiro (corrente/poupança/caixa)
-- **Cartão de crédito**: exige `limit_amount` (limite a consumir); `available` = limite − dívida; compras não saem da conta geral
+- **Cartão de crédito**: exige `limit_amount` (limite a consumir); `available` = limite − fatura em aberto − parcelas ainda não pagas; compras não saem da conta geral
 - **Vale alimentação / refeição** e **vale combustível / transporte**: cartão pré-pago (saldo em `initial_balance`; gastos diminuem o saldo). Não entram no dinheiro disponível nem usam limite de crédito.
 - **Pagar fatura**: `POST /api/moneyger/accounts/{cartao}/pay-bill/` com `from_account` + `amount`
 

@@ -866,6 +866,66 @@ class AccountLimitTests(TestCase):
         self.assertEqual(ok.data['limit_amount'], '3000.00')
         self.assertEqual(ok.data['available'], '3000.00')
 
+    def test_credit_available_subtracts_unpaid_installments(self):
+        card = self.client.post('/api/moneyger/accounts/', {
+            'name': 'Cartão',
+            'account_type': 'credit',
+            'initial_balance': '0',
+            'limit_amount': '5000.00',
+        }, format='json').data
+        plan = self.client.post('/api/moneyger/installments/', {
+            'account': card['id'],
+            'description': 'Notebook',
+            'total_amount': '3600.00',
+            'installment_amount': '300.00',
+            'total_installments': 12,
+            'paid_installments': 0,
+            'start_on': '2026-09-18',
+            'payment_method': 'credit',
+        }, format='json')
+        self.assertEqual(plan.status_code, status.HTTP_201_CREATED)
+
+        listed = self.client.get(f"/api/moneyger/accounts/{card['id']}/").data
+        self.assertEqual(listed['balance'], '0.00')
+        self.assertEqual(listed['installment_commitment'], '3600.00')
+        self.assertEqual(listed['available'], '1400.00')
+
+        pay = self.client.post(
+            f"/api/moneyger/installments/{plan.data['id']}/pay/",
+            {'create_transaction': True},
+            format='json',
+        )
+        self.assertEqual(pay.status_code, status.HTTP_200_OK)
+        after_parcel = self.client.get(f"/api/moneyger/accounts/{card['id']}/").data
+        self.assertEqual(after_parcel['balance'], '300.00')
+        self.assertEqual(after_parcel['installment_commitment'], '3300.00')
+        self.assertEqual(after_parcel['available'], '1400.00')
+
+        bill = self.client.post('/api/moneyger/accounts/', {
+            'name': 'Corrente', 'account_type': 'checking', 'initial_balance': '1000.00',
+        }, format='json').data
+        paid_bill = self.client.post(f"/api/moneyger/accounts/{card['id']}/pay-bill/", {
+            'from_account': bill['id'],
+            'amount': '300.00',
+            'occurred_on': '2026-09-30',
+        }, format='json')
+        self.assertEqual(paid_bill.status_code, status.HTTP_201_CREATED)
+        after_bill = self.client.get(f"/api/moneyger/accounts/{card['id']}/").data
+        self.assertEqual(after_bill['balance'], '0.00')
+        self.assertEqual(after_bill['installment_commitment'], '3300.00')
+        self.assertEqual(after_bill['available'], '1700.00')
+
+        marked = self.client.post(
+            f"/api/moneyger/installments/{plan.data['id']}/pay/",
+            {'create_transaction': False},
+            format='json',
+        )
+        self.assertEqual(marked.status_code, status.HTTP_200_OK)
+        after_mark = self.client.get(f"/api/moneyger/accounts/{card['id']}/").data
+        self.assertEqual(after_mark['balance'], '0.00')
+        self.assertEqual(after_mark['installment_commitment'], '3000.00')
+        self.assertEqual(after_mark['available'], '2000.00')
+
     def test_meal_voucher_is_prepaid_balance(self):
         ok = self.client.post('/api/moneyger/accounts/', {
             'name': 'VR',
@@ -877,3 +937,85 @@ class AccountLimitTests(TestCase):
         self.assertEqual(ok.data['balance'], '800.00')
         self.assertEqual(ok.data['available'], '800.00')
         self.assertFalse(ok.data['requires_limit'])
+
+
+class StatementAndResetTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username='renanrds', email='r@example.com', password='x')
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+
+    def test_statement_groups_installments_without_transactions(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from moneyger.models import Transaction
+
+        card = self.client.post('/api/moneyger/accounts/', {
+            'name': 'Roxinho', 'account_type': 'credit', 'limit_amount': '5000.00',
+        }, format='json').data
+        csv_body = (
+            'date,title,amount\n'
+            '2026-09-18,Mercado Local,"52,88"\n'
+            '2026-09-04,Pagamento recebido,"- 2.496,63"\n'
+            '2026-09-11,iFood - NuPay - 1/2,"60,78"\n'
+            '2026-08-31,Mercadolivre*Mercadol - Parcela 7/12,"39,03"\n'
+        ).encode()
+        upload = SimpleUploadedFile('nubank.csv', csv_body, content_type='text/csv')
+        resp = self.client.post(
+            f"/api/moneyger/accounts/{card['id']}/import-statement/",
+            {'file': upload},
+            format='multipart',
+        )
+        self.assertEqual(resp.status_code, status.HTTP_200_OK)
+        self.assertEqual(resp.data['created'], 2)
+        self.assertEqual(Transaction.objects.filter(user=self.user).count(), 0)
+        mercado = InstallmentPlan.objects.get(description__startswith='Mercadolivre')
+        self.assertEqual(mercado.paid_installments, 7)
+        self.assertEqual(mercado.total_installments, 12)
+        self.assertEqual(mercado.installment_amount, Decimal('39.03'))
+        self.assertTrue(mercado.is_active)
+
+    def test_mark_paid_without_transaction_and_initial_paid_count(self):
+        from moneyger.models import Transaction
+
+        acc = self.client.post('/api/moneyger/accounts/', {
+            'name': 'Cartão', 'account_type': 'credit', 'limit_amount': '2000.00',
+        }, format='json').data
+        plan = self.client.post('/api/moneyger/installments/', {
+            'account': acc['id'],
+            'description': 'Sofá',
+            'total_amount': '1000.00',
+            'installment_amount': '100.00',
+            'total_installments': 10,
+            'paid_installments': 3,
+            'start_on': '2026-01-10',
+            'payment_method': 'credit',
+        }, format='json')
+        self.assertEqual(plan.status_code, status.HTTP_201_CREATED, plan.data)
+        self.assertEqual(plan.data['paid_installments'], 3)
+        self.assertEqual(plan.data['next_due_on'], '2026-04-10')
+        self.assertEqual(Transaction.objects.filter(user=self.user).count(), 0)
+
+        pay = self.client.post(
+            f"/api/moneyger/installments/{plan.data['id']}/pay/",
+            {'create_transaction': False},
+            format='json',
+        )
+        self.assertEqual(pay.status_code, status.HTTP_200_OK)
+        self.assertEqual(pay.data['plan']['paid_installments'], 4)
+        self.assertIsNone(pay.data['transaction'])
+        self.assertEqual(Transaction.objects.filter(user=self.user).count(), 0)
+
+    def test_reset_requires_confirm_and_keeps_telegram(self):
+        from moneyger.models import Account, TelegramLink
+
+        self.client.post('/api/moneyger/accounts/', {
+            'name': 'Conta', 'account_type': 'checking', 'initial_balance': '10.00',
+        }, format='json')
+        TelegramLink.objects.create(user=self.user, chat_id='999')
+        denied = self.client.post('/api/moneyger/reset/', {}, format='json')
+        self.assertEqual(denied.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(Account.objects.filter(user=self.user).count(), 1)
+        ok = self.client.post('/api/moneyger/reset/', {'confirm': 'ZERAR'}, format='json')
+        self.assertEqual(ok.status_code, status.HTTP_200_OK)
+        self.assertEqual(Account.objects.filter(user=self.user).count(), 0)
+        self.assertEqual(TelegramLink.objects.filter(user=self.user).count(), 1)

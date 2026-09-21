@@ -91,6 +91,57 @@ class AccountPayBillView(MoneygerMixin, views.APIView):
         }, status=status.HTTP_201_CREATED)
 
 
+class AccountImportStatementView(MoneygerMixin, views.APIView):
+    """Lê CSV de fatura e cria/atualiza parcelamentos do cartão, sem lançamentos."""
+
+    parser_classes = [MultiPartParser, FormParser]
+
+    def post(self, request, pk):
+        from .statement import import_credit_statement
+
+        account = get_object_or_404(Account, pk=pk, user=request.user, is_active=True)
+        if account.account_type != 'credit':
+            return Response(
+                {'detail': 'Importe o extrato em uma conta de cartão de crédito.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        upload = request.FILES.get('file')
+        if not upload:
+            return Response({'detail': 'Envie o arquivo CSV do extrato.'}, status=status.HTTP_400_BAD_REQUEST)
+        text = upload.read().decode('utf-8-sig', errors='replace')
+        try:
+            result = import_credit_statement(request.user, account, text)
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({
+            'created': result['created'],
+            'updated': result['updated'],
+            'plans': InstallmentPlanSerializer(result['plans'], many=True).data,
+        })
+
+
+class ResetDataView(MoneygerMixin, views.APIView):
+    """Apaga os registros do Moneyger e recria as categorias padrão. Mantém o Telegram."""
+
+    def post(self, request):
+        if (request.data.get('confirm') or '').strip().upper() != 'ZERAR':
+            return Response(
+                {'detail': 'Confirme enviando confirm=ZERAR.'},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        user = request.user
+        MarketList.objects.filter(user=user).delete()
+        InboxItem.objects.filter(user=user).delete()
+        Transaction.objects.filter(user=user).delete()
+        Budget.objects.filter(user=user).delete()
+        InstallmentPlan.objects.filter(user=user).delete()
+        RecurringRule.objects.filter(user=user).delete()
+        Account.objects.filter(user=user).delete()
+        Category.objects.filter(user=user).delete()
+        ensure_default_categories(user)
+        return Response({'ok': True})
+
+
 class CategoryListCreateView(MoneygerMixin, generics.ListCreateAPIView):
     serializer_class = CategorySerializer
 
@@ -250,9 +301,19 @@ class InstallmentListCreateView(MoneygerMixin, generics.ListCreateAPIView):
             serializer.validated_data['installment_amount'] = installment_amount
         if not total_amount and installment_amount and total_n:
             serializer.validated_data['total_amount'] = installment_amount * total_n
-        if 'next_due_on' not in serializer.validated_data:
-            serializer.validated_data['next_due_on'] = serializer.validated_data['start_on']
-        serializer.save(user=self.request.user, paid_installments=0)
+        from .statement import add_months
+
+        start_on = serializer.validated_data['start_on']
+        paid = int(serializer.validated_data.get('paid_installments') or 0)
+        if paid >= total_n:
+            serializer.validated_data['paid_installments'] = total_n
+            serializer.validated_data['is_active'] = False
+            serializer.validated_data['next_due_on'] = start_on
+        elif paid > 0:
+            serializer.validated_data['next_due_on'] = add_months(start_on, paid)
+        elif 'next_due_on' not in serializer.validated_data:
+            serializer.validated_data['next_due_on'] = start_on
+        serializer.save(user=self.request.user)
 
 
 class InstallmentDetailView(MoneygerMixin, generics.RetrieveUpdateDestroyAPIView):

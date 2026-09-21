@@ -127,6 +127,9 @@ def build_dashboard_snapshot(user, year: int | None = None, month: int | None = 
             'balance': str(bal),
             'limit_amount': str(a.limit_amount) if a.limit_amount is not None else None,
             'available': str(avail) if avail is not None else None,
+            'installment_commitment': (
+                str(installment_commitment(a)) if is_liability_account(a) else None
+            ),
             'color': a.color,
         })
         if role == 'liability':
@@ -300,17 +303,35 @@ def account_balance(account) -> Decimal:
     return (account.initial_balance + delta).quantize(Decimal('0.01'))
 
 
+def installment_commitment(account) -> Decimal:
+    """Parcelas ainda não pagas neste cartão. Seguem comprometendo o limite."""
+    if not is_liability_account(account):
+        return Decimal('0.00')
+    from .models import InstallmentPlan
+
+    total = Decimal('0')
+    rows = InstallmentPlan.objects.filter(account=account, is_active=True).values_list(
+        'paid_installments', 'total_installments', 'installment_amount',
+    )
+    for paid, total_n, amount in rows:
+        remaining = max(0, int(total_n) - int(paid))
+        if remaining:
+            total += Decimal(amount) * remaining
+    return total.quantize(Decimal('0.01'))
+
+
 def account_available(account) -> Decimal | None:
     """
     Quanto ainda pode gastar neste meio.
-    Cartão: limite − dívida. Vale pré-pago: saldo. Demais: None.
+    Cartão: limite − fatura em aberto − parcelas a vencer.
+    Vale pré-pago: saldo. Demais: None.
     """
     bal = account_balance(account)
     lim = account.limit_amount
     if account.account_type == AccountType.CREDIT:
         if lim is None:
             return None
-        return (Decimal(lim) - bal).quantize(Decimal('0.01'))
+        return (Decimal(lim) - bal - installment_commitment(account)).quantize(Decimal('0.01'))
     if is_prepaid_account(account):
         return bal
     return None

@@ -1,15 +1,18 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, CreditCard, Pencil, Plus, Trash2, Wallet, X } from 'lucide-react';
+import { Check, CreditCard, FileUp, Pencil, Plus, Trash2, Wallet, X } from 'lucide-react';
 import AddAccordion from '../components/AddAccordion';
 import { PageHeader, PageShell } from '../components/ui';
 import {
   createAccount,
   deleteAccount,
   fetchAccounts,
+  fetchInstallments,
   formatApiError,
+  importCardStatement,
   payCreditBill,
   type MoneyAccount,
+  type MoneyInstallment,
   updateAccount,
 } from '../lib/moneygerApi';
 import { formatBRL, moneygerTheme as t } from '../theme';
@@ -92,6 +95,61 @@ function ColorPicker({ value, onChange }: { value: string; onChange: (color: str
   );
 }
 
+function CreditPlans({
+  accountId,
+  plans,
+  importing,
+  onFile,
+}: {
+  accountId: number;
+  plans: MoneyInstallment[];
+  importing: boolean;
+  onFile: (file: File) => void;
+}) {
+  return (
+    <div className="space-y-2 pt-1">
+      <p className="text-xs font-bold uppercase tracking-wider" style={{ color: t.muted }}>
+        Parcelamentos deste cartão
+      </p>
+      {plans.length === 0 ? (
+        <p className="text-xs" style={{ color: t.muted }}>Nenhum parcelamento mapeado.</p>
+      ) : plans.map((p) => (
+        <div key={p.id} className="flex items-center justify-between gap-2 text-sm">
+          <div className="min-w-0">
+            <p className="text-white truncate">{p.description}</p>
+            <p className="text-xs" style={{ color: t.muted }}>
+              {p.paid_installments}/{p.total_installments} · próxima {p.next_due_on}
+            </p>
+          </div>
+          <p className="font-bold whitespace-nowrap" style={{ color: t.expense }}>{formatBRL(p.installment_amount)}</p>
+        </div>
+      ))}
+      <label
+        className="w-full py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-2 cursor-pointer"
+        style={{ background: '#0f0f1a', border: `1px solid ${t.border}`, color: t.primary, opacity: importing ? 0.5 : 1 }}
+      >
+        <FileUp size={14} />
+        {importing ? 'Lendo extrato…' : 'Importar extrato CSV'}
+        <input
+          type="file"
+          accept=".csv,text/csv"
+          className="hidden"
+          disabled={importing}
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            e.target.value = '';
+            if (file) onFile(file);
+          }}
+        />
+      </label>
+      <p className="text-[11px]" style={{ color: t.muted }}>
+        CSV com date, title e amount (ex.: Nubank). Linhas “Parcela N/M” viram parcelamentos já pagos até essa parcela, sem lançamento.
+      </p>
+      <span className="sr-only">{accountId}</span>
+    </div>
+  );
+}
+
 export default function MoneygerAccountsPage() {
   useAmountsHidden((s) => s.hidden);
   const [form, setForm] = useState<FormState>(emptyForm());
@@ -99,16 +157,31 @@ export default function MoneygerAccountsPage() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editForm, setEditForm] = useState<FormState>(emptyForm());
   const [payingId, setPayingId] = useState<number | null>(null);
+  const [plansId, setPlansId] = useState<number | null>(null);
   const [payFromId, setPayFromId] = useState<number | ''>('');
   const [payAmount, setPayAmount] = useState('');
   const queryClient = useQueryClient();
   const { data = [], isLoading } = useQuery({ queryKey: ['moneyger', 'accounts'], queryFn: fetchAccounts });
+  const plansQ = useQuery({
+    queryKey: ['moneyger', 'installments', 'all'],
+    queryFn: () => fetchInstallments(),
+  });
 
   const assets = useMemo(() => data.filter((a) => !isCredit(a) && !isVoucher(a)), [data]);
   const cards = useMemo(() => data.filter((a) => isCredit(a)), [data]);
   const vouchers = useMemo(() => data.filter((a) => isVoucher(a)), [data]);
 
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['moneyger'] });
+
+  const importStatement = useMutation({
+    mutationFn: ({ accountId, file }: { accountId: number; file: File }) =>
+      importCardStatement(accountId, file),
+    onSuccess: (result) => {
+      invalidate();
+      alert(`Extrato lido: ${result.created} parcelamento(s) novo(s), ${result.updated} atualizado(s). Sem lançamentos.`);
+    },
+    onError: (e) => alert(formatApiError(e, 'Não foi possível ler o extrato.')),
+  });
 
   const create = useMutation({
     mutationFn: () => {
@@ -358,10 +431,28 @@ export default function MoneygerAccountsPage() {
                   {a.available != null ? ` · disponível ${formatBRL(a.available)}` : ''}
                 </p>
               )}
+              {(credit && a.installment_commitment) && (
+                <p className="text-xs mt-0.5" style={{ color: t.muted }}>
+                  Parcelas a vencer {formatBRL(a.installment_commitment)}
+                </p>
+              )}
               {voucher && (
                 <p className="text-xs mt-0.5" style={{ color: t.muted }}>Pré-pago · o saldo cai a cada gasto</p>
               )}
             </div>
+            {credit && (
+              <button
+                type="button"
+                onClick={() => {
+                  setPayingId(null);
+                  setPlansId((id) => (id === a.id ? null : a.id));
+                }}
+                className="px-2.5 py-1.5 rounded-xl text-xs font-bold"
+                style={{ background: plansId === a.id ? t.primary : t.primarySoft, color: plansId === a.id ? '#fff' : t.primary }}
+              >
+                Parcelas
+              </button>
+            )}
             {credit && (
               <button
                 type="button"
@@ -393,6 +484,14 @@ export default function MoneygerAccountsPage() {
               <Trash2 size={16} />
             </button>
           </div>
+        )}
+        {credit && plansId === a.id && !isEditing && !isPaying && (
+          <CreditPlans
+            accountId={a.id}
+            plans={(plansQ.data ?? []).filter((p) => p.account === a.id && p.is_active)}
+            importing={importStatement.isPending}
+            onFile={(file) => importStatement.mutate({ accountId: a.id, file })}
+          />
         )}
       </div>
     );
