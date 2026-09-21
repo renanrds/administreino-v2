@@ -338,13 +338,34 @@ export async function createInstallment(payload: Record<string, unknown>): Promi
   return data;
 }
 
-export async function payInstallment(id: number): Promise<{ plan: MoneyInstallment; transaction: MoneyTransaction | null }> {
-  const { data } = await api.post(`/moneyger/installments/${id}/pay/`, { create_transaction: true });
+export async function payInstallment(
+  id: number,
+  opts?: { createTransaction?: boolean },
+): Promise<{ plan: MoneyInstallment; transaction: MoneyTransaction | null }> {
+  const { data } = await api.post(`/moneyger/installments/${id}/pay/`, {
+    create_transaction: opts?.createTransaction !== false,
+  });
   return data;
 }
 
 export async function deleteInstallment(id: number): Promise<void> {
   await api.delete(`/moneyger/installments/${id}/`);
+}
+
+export async function importCardStatement(accountId: number, file: File): Promise<{
+  created: number;
+  updated: number;
+}> {
+  const body = new FormData();
+  body.append('file', file);
+  const { data } = await api.post(`/moneyger/accounts/${accountId}/import-statement/`, body, {
+    headers: { 'Content-Type': 'multipart/form-data' },
+  });
+  return data;
+}
+
+export async function resetMoneygerData(): Promise<void> {
+  await api.post('/moneyger/reset/', { confirm: 'ZERAR' });
 }
 
 export type MarketListItem = {

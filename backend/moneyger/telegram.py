@@ -200,6 +200,7 @@ class TelegramLinkCodeView(MoneygerMixin, views.APIView):
         deep = f'https://t.me/{bot}?start={code}' if bot else None
         return Response({
             'link_code': code,
+            'start_command': f'/start {code}',
             'bot_username': bot or None,
             'deep_link': deep,
             'instructions': (

@@ -131,8 +131,23 @@ class InstallmentPlanSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             'id', 'created_at', 'updated_at', 'account_name', 'category_name',
-            'remaining_installments', 'is_completed', 'paid_installments',
+            'remaining_installments', 'is_completed',
         ]
+        extra_kwargs = {
+            'next_due_on': {'required': False},
+        }
+
+    def validate(self, attrs):
+        total = attrs.get('total_installments', getattr(self.instance, 'total_installments', None))
+        paid = attrs.get('paid_installments', getattr(self.instance, 'paid_installments', 0))
+        paid = 0 if paid is None else int(paid)
+        if total is not None and paid > int(total):
+            raise serializers.ValidationError({
+                'paid_installments': 'As parcelas já pagas não podem passar do total.',
+            })
+        if paid < 0:
+            raise serializers.ValidationError({'paid_installments': 'Informe zero ou mais.'})
+        return attrs
 
 
 class InboxItemSerializer(serializers.ModelSerializer):

@@ -65,6 +65,7 @@ export default function MoneygerPlanningPage() {
   const [frequency, setFrequency] = useState('monthly');
   const [installments, setInstallments] = useState('12');
   const [installmentAmount, setInstallmentAmount] = useState('');
+  const [paidAlready, setPaidAlready] = useState('0');
 
   useEffect(() => {
     if (accounts.length && accountId === '') setAccountId(accounts[0].id);
@@ -78,6 +79,7 @@ export default function MoneygerPlanningPage() {
     setInstallmentAmount('');
     setDueOn(todayISO());
     setInstallments('12');
+    setPaidAlready('0');
   };
 
   const createFixed = useMutation({
@@ -115,6 +117,7 @@ export default function MoneygerPlanningPage() {
   const createPlan = useMutation({
     mutationFn: () => {
       const n = Math.max(1, Number(installments) || 1);
+      const already = Math.min(n, Math.max(0, Number(paidAlready) || 0));
       const parcel = installmentAmount.replace(',', '.') || amount.replace(',', '.');
       const total = amount.replace(',', '.')
         || String((Number(parcel) * n).toFixed(2));
@@ -125,6 +128,7 @@ export default function MoneygerPlanningPage() {
         total_amount: total,
         installment_amount: parcel,
         total_installments: n,
+        paid_installments: already,
         start_on: dueOn,
         next_due_on: dueOn,
         payment_method: method,
@@ -143,7 +147,8 @@ export default function MoneygerPlanningPage() {
     onSuccess: invalidate,
   });
   const payPlan = useMutation({
-    mutationFn: payInstallment,
+    mutationFn: ({ id, createTransaction }: { id: number; createTransaction: boolean }) =>
+      payInstallment(id, { createTransaction }),
     onSuccess: invalidate,
     onError: (e) => alert(formatApiError(e, 'Erro ao registrar parcela.')),
   });
@@ -228,6 +233,7 @@ export default function MoneygerPlanningPage() {
         </div>
 
         {tab === 'installments' ? (
+          <>
           <div className="grid grid-cols-3 gap-2">
             <input value={installments} onChange={(e) => setInstallments(e.target.value)}
               placeholder="Nº parcelas" inputMode="numeric"
@@ -242,6 +248,15 @@ export default function MoneygerPlanningPage() {
               className="px-3 py-2.5 rounded-xl text-sm text-white outline-none"
               style={{ background: '#0f0f1a', border: `1px solid ${t.border}` }} />
           </div>
+          <input value={paidAlready} onChange={(e) => setPaidAlready(e.target.value)}
+            placeholder="Já pagas (sem lançar)"
+            inputMode="numeric"
+            className="w-full px-3 py-2.5 rounded-xl text-sm text-white outline-none"
+            style={{ background: '#0f0f1a', border: `1px solid ${t.border}` }} />
+          <p className="text-xs" style={{ color: t.muted }}>
+            Use “já pagas” na configuração inicial. Isso só avança o plano, sem criar lançamento.
+          </p>
+          </>
         ) : (
           <input value={amount} onChange={(e) => setAmount(e.target.value)}
             placeholder="Valor (ex.: 1500,00)"
@@ -341,10 +356,16 @@ export default function MoneygerPlanningPage() {
                 </div>
                 <div className="flex gap-2">
                   <button type="button" disabled={payPlan.isPending}
-                    onClick={() => payPlan.mutate(p.id)}
+                    onClick={() => payPlan.mutate({ id: p.id, createTransaction: true })}
                     className="flex-1 py-2 rounded-xl text-xs font-bold text-white flex items-center justify-center gap-1"
                     style={{ background: t.gradient }}>
                     <CheckCircle2 size={14} /> Pagar parcela
+                  </button>
+                  <button type="button" disabled={payPlan.isPending}
+                    onClick={() => payPlan.mutate({ id: p.id, createTransaction: false })}
+                    className="flex-1 py-2 rounded-xl text-xs font-bold"
+                    style={{ background: '#0f0f1a', color: t.primary, border: `1px solid ${t.border}` }}>
+                    Só marcar
                   </button>
                   <button type="button"
                     onClick={() => { if (confirm('Arquivar parcelamento?')) delPlan.mutate(p.id); }}

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, ClipboardPaste, ExternalLink, Link2, Send, X } from 'lucide-react';
+import { Check, ClipboardPaste, Copy, ExternalLink, Link2, Send, X } from 'lucide-react';
 import {
   confirmInbox, dismissInbox, fetchAccounts, fetchInbox,
   fetchTelegramLinkCode, fetchTelegramStatus, formatApiError, quickCapture,
@@ -120,6 +120,7 @@ export default function MoneygerCapturePage() {
   const [accountId, setAccountId] = useState<number | ''>('');
   const [tgCode, setTgCode] = useState<string | null>(null);
   const [tgDeepLink, setTgDeepLink] = useState<string | null>(null);
+  const [copied, setCopied] = useState(false);
   const queryClient = useQueryClient();
 
   const accountsQ = useQuery({ queryKey: ['moneyger', 'accounts'], queryFn: fetchAccounts });
@@ -183,6 +184,21 @@ export default function MoneygerCapturePage() {
   const linked = Boolean(tg?.linked);
   const botName = tg?.bot_display_name || 'Gastôncio';
   const botUser = tg?.bot_username ? `@${tg.bot_username}` : null;
+  const startCommand = tgCode ? `/start ${tgCode}` : '';
+  const startLink = tg?.bot_username && tgCode
+    ? `https://t.me/${tg.bot_username}?start=${encodeURIComponent(tgCode)}`
+    : tgDeepLink;
+
+  const copyStart = async () => {
+    if (!startCommand) return;
+    try {
+      await navigator.clipboard.writeText(startCommand);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 2000);
+    } catch {
+      alert(`Copie manualmente: ${startCommand}`);
+    }
+  };
 
   return (
     <PageShell>
@@ -315,11 +331,22 @@ export default function MoneygerCapturePage() {
           <div className="mt-3 rounded-xl p-3 space-y-2" style={{ background: '#0f0f1a', border: `1px solid ${t.border}` }}>
             <p className="text-center text-sm text-white">
               Envie no Telegram:{' '}
-              <code className="font-black" style={{ color: t.primary }}>/start {tgCode}</code>
+              <code className="font-black" style={{ color: t.primary }}>{startCommand}</code>
             </p>
-            {tgDeepLink && (
+            <p className="text-[11px] text-center" style={{ color: t.muted }}>
+              Se o Telegram abrir só com /start, cole o comando completo.
+            </p>
+            <button
+              type="button"
+              onClick={() => copyStart()}
+              className="w-full py-2.5 rounded-xl text-sm font-bold text-white flex items-center justify-center gap-2"
+              style={{ background: t.gradient }}
+            >
+              <Copy size={14} /> {copied ? 'Comando copiado' : 'Copiar comando'}
+            </button>
+            {startLink && (
               <a
-                href={tgDeepLink}
+                href={startLink}
                 target="_blank"
                 rel="noreferrer"
                 className="w-full py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1"
