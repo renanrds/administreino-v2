@@ -12,6 +12,14 @@ import ActiveSessionPage from './pages/ActiveSessionPage';
 import HistoryPage from './pages/HistoryPage';
 import SessionDetailPage from './pages/SessionDetailPage';
 import ProfilePage from './pages/ProfilePage';
+import MoneygerLayout, { MoneygerRoute } from './moneyger/MoneygerLayout';
+import MoneygerDashboardPage from './moneyger/pages/DashboardPage';
+import MoneygerTransactionsPage from './moneyger/pages/TransactionsPage';
+import MoneygerCapturePage from './moneyger/pages/CapturePage';
+import MoneygerBudgetsPage from './moneyger/pages/BudgetsPage';
+import MoneygerAccountsPage from './moneyger/pages/AccountsPage';
+import MoneygerMorePage from './moneyger/pages/MorePage';
+import MoneygerPlanningPage from './moneyger/pages/PlanningPage';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
@@ -41,6 +49,15 @@ export default function App() {
           <Route path="profile" element={<ProfilePage />} />
         </Route>
         <Route path="/session/:id" element={<PrivateRoute><ActiveSessionPage /></PrivateRoute>} />
+        <Route path="/moneyger" element={<MoneygerRoute><MoneygerLayout /></MoneygerRoute>}>
+          <Route index element={<MoneygerDashboardPage />} />
+          <Route path="transactions" element={<MoneygerTransactionsPage />} />
+          <Route path="capture" element={<MoneygerCapturePage />} />
+          <Route path="planning" element={<MoneygerPlanningPage />} />
+          <Route path="budgets" element={<MoneygerBudgetsPage />} />
+          <Route path="accounts" element={<MoneygerAccountsPage />} />
+          <Route path="more" element={<MoneygerMorePage />} />
+        </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
