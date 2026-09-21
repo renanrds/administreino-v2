@@ -11,17 +11,18 @@ class AccountSerializer(serializers.ModelSerializer):
     balance = serializers.SerializerMethodField()
     role = serializers.SerializerMethodField()
     available = serializers.SerializerMethodField()
+    installment_commitment = serializers.SerializerMethodField()
     requires_limit = serializers.SerializerMethodField()
 
     class Meta:
         model = Account
         fields = [
             'id', 'name', 'account_type', 'initial_balance', 'limit_amount',
-            'balance', 'available', 'role', 'requires_limit', 'color',
+            'balance', 'available', 'installment_commitment', 'role', 'requires_limit', 'color',
             'is_active', 'created_at', 'updated_at',
         ]
         read_only_fields = [
-            'id', 'balance', 'available', 'role', 'requires_limit',
+            'id', 'balance', 'available', 'installment_commitment', 'role', 'requires_limit',
             'created_at', 'updated_at',
         ]
 
@@ -33,6 +34,13 @@ class AccountSerializer(serializers.ModelSerializer):
         from .services import account_available
         avail = account_available(obj)
         return str(avail) if avail is not None else None
+
+    def get_installment_commitment(self, obj):
+        from .services import installment_commitment
+        committed = installment_commitment(obj)
+        if committed <= 0:
+            return None
+        return str(committed)
 
     def get_role(self, obj):
         from .services import is_liability_account

@@ -8,6 +8,7 @@ export type MoneyAccount = {
   limit_amount?: string | null;
   balance?: string;
   available?: string | null;
+  installment_commitment?: string | null;
   role?: 'asset' | 'liability';
   requires_limit?: boolean;
   color: string;

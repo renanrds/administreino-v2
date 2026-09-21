@@ -866,6 +866,66 @@ class AccountLimitTests(TestCase):
         self.assertEqual(ok.data['limit_amount'], '3000.00')
         self.assertEqual(ok.data['available'], '3000.00')
 
+    def test_credit_available_subtracts_unpaid_installments(self):
+        card = self.client.post('/api/moneyger/accounts/', {
+            'name': 'Cartão',
+            'account_type': 'credit',
+            'initial_balance': '0',
+            'limit_amount': '5000.00',
+        }, format='json').data
+        plan = self.client.post('/api/moneyger/installments/', {
+            'account': card['id'],
+            'description': 'Notebook',
+            'total_amount': '3600.00',
+            'installment_amount': '300.00',
+            'total_installments': 12,
+            'paid_installments': 0,
+            'start_on': '2026-09-18',
+            'payment_method': 'credit',
+        }, format='json')
+        self.assertEqual(plan.status_code, status.HTTP_201_CREATED)
+
+        listed = self.client.get(f"/api/moneyger/accounts/{card['id']}/").data
+        self.assertEqual(listed['balance'], '0.00')
+        self.assertEqual(listed['installment_commitment'], '3600.00')
+        self.assertEqual(listed['available'], '1400.00')
+
+        pay = self.client.post(
+            f"/api/moneyger/installments/{plan.data['id']}/pay/",
+            {'create_transaction': True},
+            format='json',
+        )
+        self.assertEqual(pay.status_code, status.HTTP_200_OK)
+        after_parcel = self.client.get(f"/api/moneyger/accounts/{card['id']}/").data
+        self.assertEqual(after_parcel['balance'], '300.00')
+        self.assertEqual(after_parcel['installment_commitment'], '3300.00')
+        self.assertEqual(after_parcel['available'], '1400.00')
+
+        bill = self.client.post('/api/moneyger/accounts/', {
+            'name': 'Corrente', 'account_type': 'checking', 'initial_balance': '1000.00',
+        }, format='json').data
+        paid_bill = self.client.post(f"/api/moneyger/accounts/{card['id']}/pay-bill/", {
+            'from_account': bill['id'],
+            'amount': '300.00',
+            'occurred_on': '2026-09-30',
+        }, format='json')
+        self.assertEqual(paid_bill.status_code, status.HTTP_201_CREATED)
+        after_bill = self.client.get(f"/api/moneyger/accounts/{card['id']}/").data
+        self.assertEqual(after_bill['balance'], '0.00')
+        self.assertEqual(after_bill['installment_commitment'], '3300.00')
+        self.assertEqual(after_bill['available'], '1700.00')
+
+        marked = self.client.post(
+            f"/api/moneyger/installments/{plan.data['id']}/pay/",
+            {'create_transaction': False},
+            format='json',
+        )
+        self.assertEqual(marked.status_code, status.HTTP_200_OK)
+        after_mark = self.client.get(f"/api/moneyger/accounts/{card['id']}/").data
+        self.assertEqual(after_mark['balance'], '0.00')
+        self.assertEqual(after_mark['installment_commitment'], '3000.00')
+        self.assertEqual(after_mark['available'], '2000.00')
+
     def test_meal_voucher_is_prepaid_balance(self):
         ok = self.client.post('/api/moneyger/accounts/', {
             'name': 'VR',

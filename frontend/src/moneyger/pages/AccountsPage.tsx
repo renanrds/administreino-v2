@@ -431,6 +431,11 @@ export default function MoneygerAccountsPage() {
                   {a.available != null ? ` · disponível ${formatBRL(a.available)}` : ''}
                 </p>
               )}
+              {(credit && a.installment_commitment) && (
+                <p className="text-xs mt-0.5" style={{ color: t.muted }}>
+                  Parcelas a vencer {formatBRL(a.installment_commitment)}
+                </p>
+              )}
               {voucher && (
                 <p className="text-xs mt-0.5" style={{ color: t.muted }}>Pré-pago · o saldo cai a cada gasto</p>
               )}
