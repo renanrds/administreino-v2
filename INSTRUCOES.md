@@ -89,4 +89,10 @@ Deploy de produção, runner self-hosted e checklist: ver **[docs/deploy.md](doc
 
 ---
 
+## 7. Moneyger (finanças)
+
+Módulo independente (tema verde), restrito a allowlist/`superuser`. Ver **[docs/moneyger.md](docs/moneyger.md)**.
+
+---
+
 Desenvolvido com sucesso para o seu ambiente Debian 13! Bons treinos! 💪

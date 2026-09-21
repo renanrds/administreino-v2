@@ -24,6 +24,7 @@ INSTALLED_APPS = [
     # Local
     'users',
     'workouts',
+    'moneyger',
 ]
 
 MIDDLEWARE = [
@@ -116,6 +117,11 @@ CORS_ALLOWED_ORIGINS = config(
     default='http://localhost:5173,http://127.0.0.1:5173'
 ).split(',')
 CORS_ALLOW_CREDENTIALS = True
+
+# Moneyger
+MONEYGER_ALLOWED_USERNAMES = config('MONEYGER_ALLOWED_USERNAMES', default='renanrds')
+MONEYGER_TELEGRAM_BOT_TOKEN = config('MONEYGER_TELEGRAM_BOT_TOKEN', default='')
+MONEYGER_TELEGRAM_WEBHOOK_SECRET = config('MONEYGER_TELEGRAM_WEBHOOK_SECRET', default='')
 
 # ─── Security settings (production only) ─────────────────────────────────────
 if not DEBUG:

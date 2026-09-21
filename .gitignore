@@ -47,3 +47,6 @@ Thumbs.db
 *.old
 .env*
 !.env.example
+
+# Moneyger — túnel local cloudflared
+.moneyger-tunnel/

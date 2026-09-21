@@ -3,6 +3,10 @@ export interface Coordinates {
   longitude: number;
 }
 
+export interface UserApps {
+  moneyger?: boolean;
+}
+
 export interface User {
   id: number;
   email: string;
@@ -21,6 +25,8 @@ export interface User {
   primary_goal?: string;
   weekly_training_days?: number;
   terms_accepted?: boolean;
+  is_superuser?: boolean;
+  apps?: UserApps;
 }
 
 export interface AuthTokens {

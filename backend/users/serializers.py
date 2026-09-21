@@ -2,6 +2,7 @@ from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from django.contrib.auth import get_user_model
 from .models import GymLocation
+from .access import apps_payload_for_user
 
 User = get_user_model()
 
@@ -25,29 +26,35 @@ class GymLocationSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at']
 
 
+def _user_public_dict(user):
+    return {
+        'id': user.id,
+        'email': user.email,
+        'username': user.username,
+        'first_name': user.first_name,
+        'last_name': user.last_name,
+        'weight': float(user.weight) if user.weight is not None else None,
+        'height': float(user.height) if user.height is not None else None,
+        'wellhub_enabled': user.wellhub_enabled,
+        'gym_app_preference': user.gym_app_preference,
+        'gender': user.gender,
+        'experience_level': user.experience_level,
+        'age': user.age,
+        'primary_goal': user.primary_goal,
+        'weekly_training_days': user.weekly_training_days,
+        'bio': user.bio,
+        'terms_accepted': user.terms_accepted,
+        'is_superuser': bool(user.is_superuser),
+        'apps': apps_payload_for_user(user),
+    }
+
+
 class CustomTokenObtainPairSerializer(TokenObtainPairSerializer):
     """JWT token com dados extras do usuário."""
 
     def validate(self, attrs):
         data = super().validate(attrs)
-        data['user'] = {
-            'id': self.user.id,
-            'email': self.user.email,
-            'username': self.user.username,
-            'first_name': self.user.first_name,
-            'last_name': self.user.last_name,
-            'weight': float(self.user.weight) if self.user.weight is not None else None,
-            'height': float(self.user.height) if self.user.height is not None else None,
-            'wellhub_enabled': self.user.wellhub_enabled,
-            'gym_app_preference': self.user.gym_app_preference,
-            'gender': self.user.gender,
-            'experience_level': self.user.experience_level,
-            'age': self.user.age,
-            'primary_goal': self.user.primary_goal,
-            'weekly_training_days': self.user.weekly_training_days,
-            'bio': self.user.bio,
-            'terms_accepted': self.user.terms_accepted,
-        }
+        data['user'] = _user_public_dict(self.user)
         return data
 
 
@@ -82,6 +89,11 @@ class UserProfileSerializer(serializers.ModelSerializer):
     gender_display = serializers.CharField(source='get_gender_display', read_only=True)
     experience_level_display = serializers.CharField(source='get_experience_level_display', read_only=True)
     gym_app_preference_display = serializers.CharField(source='get_gym_app_preference_display', read_only=True)
+    is_superuser = serializers.BooleanField(read_only=True)
+    apps = serializers.SerializerMethodField()
+
+    def get_apps(self, obj):
+        return apps_payload_for_user(obj)
 
     class Meta:
         model = User
@@ -92,6 +104,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
             'experience_level', 'experience_level_display',
             'age', 'primary_goal', 'weekly_training_days',
             'wellhub_enabled', 'gym_app_preference', 'gym_app_preference_display',
-            'terms_accepted', 'gym_locations', 'created_at'
+            'terms_accepted', 'gym_locations', 'created_at',
+            'is_superuser', 'apps',
         ]
-        read_only_fields = ['id', 'email', 'created_at', 'gym_locations']
+        read_only_fields = ['id', 'email', 'created_at', 'gym_locations', 'is_superuser', 'apps']

@@ -1,6 +1,8 @@
+import { useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, History, User, LogOut, Dumbbell } from 'lucide-react';
+import { LayoutDashboard, History, User, LogOut, Dumbbell, ChevronDown } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
+import AppSwitcher from './AppSwitcher';
 
 const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Início' },
@@ -12,6 +14,8 @@ const navItems = [
 export default function Layout() {
   const { user, logout } = useAuthStore();
   const navigate = useNavigate();
+  const [switcherOpen, setSwitcherOpen] = useState(false);
+  const canSwitchApps = Boolean(user?.apps?.moneyger);
 
   const handleLogout = () => {
     logout();
@@ -20,18 +24,35 @@ export default function Layout() {
 
   return (
     <div className="flex flex-col min-h-screen" style={{ background: '#0f0f1a' }}>
-      {/* Header */}
       <header className="sticky top-0 z-40 px-4 py-3 flex items-center justify-between"
         style={{ background: 'rgba(26,26,46,0.95)', backdropFilter: 'blur(12px)', borderBottom: '1px solid #2a2a4a' }}>
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 rounded-lg flex items-center justify-center"
-            style={{ background: 'linear-gradient(135deg, #ff8a1f, #ff5a00)' }}>
-            <img src="/branding/adminstreino-emblem.svg" alt="Administreino" className="w-5 h-5" />
+        {canSwitchApps ? (
+          <button
+            type="button"
+            onClick={() => setSwitcherOpen(true)}
+            className="flex items-center gap-2 rounded-xl pr-2 active:scale-[0.98] transition-transform"
+            title="Trocar aplicação"
+          >
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center"
+              style={{ background: 'linear-gradient(135deg, #ff8a1f, #ff5a00)' }}>
+              <img src="/branding/adminstreino-emblem.svg" alt="" className="w-5 h-5" />
+            </div>
+            <span className="font-black text-white text-lg">
+              Adminis<span style={{ color: '#ff8a1f' }}>treino</span>
+            </span>
+            <ChevronDown size={16} style={{ color: '#94a3b8' }} />
+          </button>
+        ) : (
+          <div className="flex items-center gap-2 select-none" aria-disabled="true">
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center"
+              style={{ background: 'linear-gradient(135deg, #ff8a1f, #ff5a00)' }}>
+              <img src="/branding/adminstreino-emblem.svg" alt="Administreino" className="w-5 h-5" />
+            </div>
+            <span className="font-black text-white text-lg">
+              Adminis<span style={{ color: '#ff8a1f' }}>treino</span>
+            </span>
           </div>
-          <span className="font-black text-white text-lg">
-            Adminis<span style={{ color: '#ff8a1f' }}>treino</span>
-          </span>
-        </div>
+        )}
         <div className="flex items-center gap-3">
           <span className="text-sm font-medium" style={{ color: '#94a3b8' }}>
             {user?.first_name || user?.username}
@@ -45,12 +66,10 @@ export default function Layout() {
         </div>
       </header>
 
-      {/* Content */}
       <main className="flex-1 overflow-y-auto pb-20">
         <Outlet />
       </main>
 
-      {/* Bottom Navigation */}
       <nav className="fixed bottom-0 left-0 right-0 z-40 safe-bottom"
         style={{ background: 'rgba(26,26,46,0.97)', backdropFilter: 'blur(12px)', borderTop: '1px solid #2a2a4a' }}>
         <div className="flex items-center justify-around px-2 py-2">
@@ -75,6 +94,12 @@ export default function Layout() {
           ))}
         </div>
       </nav>
+
+      <AppSwitcher
+        open={switcherOpen}
+        onClose={() => setSwitcherOpen(false)}
+        current="administreino"
+      />
     </div>
   );
 }

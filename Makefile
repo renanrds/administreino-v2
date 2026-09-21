@@ -54,7 +54,10 @@ endef
 	init-ssl renew-ssl \
 	up down build logs clean \
 	db-dump-clean db-restore-sql shell-backend shell-db shell-frontend \
-	restart restart-backend restart-frontend
+	restart restart-backend restart-frontend \
+	moneyger-bot-check moneyger-bot-check-prod moneyger-bot-webhook moneyger-bot-webhook-prod \
+	moneyger-bot-tunnel-stop \
+	moneyger-wipe-keep-telegram
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Ajuda
@@ -105,6 +108,13 @@ help:
 	$(call SECTION,Logs)
 	$(call CMD,app-logs,Logs do backend (dev))
 	$(call CMD,frontend-logs,Logs do frontend (dev))
+	$(call SECTION,Moneyger — Telegram)
+	$(call CMD,moneyger-bot-check,Dev: túnel HTTPS (:8000) + setWebhook + checagem)
+	$(call CMD,moneyger-bot-check-prod,Prod: getMe + webhook público, sem túnel)
+	$(call CMD,moneyger-bot-webhook-prod,Prod: registra webhook em MONEYGER_PUBLIC_BASE_URL)
+	$(call CMD,moneyger-bot-tunnel-stop,Encerra o túnel cloudflared do Moneyger)
+	@echo -e "  $(_G)moneyger-bot-webhook$(_R)  WEBHOOK_URL=... (sem URL = mesmo que moneyger-bot-check)"
+	@echo -e "  $(_Y)moneyger-wipe-keep-telegram$(_R)  TEMP: zera dados Moneyger (mantém Telegram)"
 	@echo -e "$(_D)  Dev: http://localhost:5173  |  API: http://localhost:8000  |  Docs: /api/docs/$(_R)"
 	@echo ""
 
@@ -307,3 +317,46 @@ renew-ssl:
 	@test -f .env.prod || (echo "Erro: crie .env.prod na raiz do projeto" && exit 1)
 	$(COMPOSE_PROD) run --rm certbot renew
 	$(COMPOSE_PROD) exec nginx nginx -s reload
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Moneyger — Telegram (Gastôncio)
+# ─────────────────────────────────────────────────────────────────────────────
+# Sobe (ou reutiliza) túnel HTTPS cloudflared → :8000, registra webhook e checa.
+moneyger-bot-check:
+	@chmod +x scripts/moneyger-bot-up.sh scripts/moneyger-bot-check.sh scripts/moneyger-bot-set-webhook.sh scripts/moneyger-bot-tunnel-stop.sh
+	@ENV_FILE=$${ENV_FILE:-backend/.env} ./scripts/moneyger-bot-up.sh
+
+# Sem WEBHOOK_URL: mesmo fluxo do check (túnel + setWebhook).
+# Com WEBHOOK_URL: só registra essa URL (ex. domínio de produção).
+moneyger-bot-webhook:
+	@chmod +x scripts/moneyger-bot-up.sh scripts/moneyger-bot-check.sh scripts/moneyger-bot-set-webhook.sh
+	@if [[ -n "$(WEBHOOK_URL)" ]]; then \
+		ENV_FILE=$${ENV_FILE:-backend/.env} WEBHOOK_URL="$(WEBHOOK_URL)" ./scripts/moneyger-bot-set-webhook.sh; \
+	else \
+		ENV_FILE=$${ENV_FILE:-backend/.env} ./scripts/moneyger-bot-up.sh; \
+	fi
+
+moneyger-bot-tunnel-stop:
+	@chmod +x scripts/moneyger-bot-tunnel-stop.sh
+	@./scripts/moneyger-bot-tunnel-stop.sh
+
+# Só leitura: token e URL pública de .env.prod. Não altera o webhook.
+moneyger-bot-check-prod:
+	@test -f .env.prod || (echo "Erro: crie .env.prod na raiz (veja .env.prod.example)" && exit 1)
+	@chmod +x scripts/moneyger-bot-check.sh
+	@ENV_FILE="$(CURDIR)/.env.prod" CHECK_SCOPE=prod ./scripts/moneyger-bot-check.sh
+
+# Aponta o bot para https://<dominio>/api/moneyger/telegram/webhook/ e checa.
+# Não sobe o túnel de desenvolvimento.
+moneyger-bot-webhook-prod:
+	@test -f .env.prod || (echo "Erro: crie .env.prod na raiz (veja .env.prod.example)" && exit 1)
+	@chmod +x scripts/moneyger-bot-webhook-prod.sh scripts/moneyger-bot-set-webhook.sh scripts/moneyger-bot-check.sh
+	@ENV_FILE="$(CURDIR)/.env.prod" ./scripts/moneyger-bot-webhook-prod.sh
+
+# TEMPORÁRIO: apaga lançamentos/inbox/contas/orçamentos/parcelas/fixas/categorias
+# do usuário (default renanrds), mas NÃO remove TelegramLink.
+# Ex.: make moneyger-wipe-keep-telegram
+#      make moneyger-wipe-keep-telegram USERNAME=renanrds
+moneyger-wipe-keep-telegram:
+	@chmod +x scripts/moneyger-wipe-keep-telegram.sh
+	@USERNAME=$${USERNAME:-renanrds} ./scripts/moneyger-wipe-keep-telegram.sh
