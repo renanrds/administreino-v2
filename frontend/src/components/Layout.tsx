@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, History, User, LogOut, Dumbbell, ChevronDown } from 'lucide-react';
+import { LayoutDashboard, History, User, LogOut, Dumbbell, ChevronDown, Shield } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import AppSwitcher from './AppSwitcher';
 
@@ -54,6 +54,18 @@ export default function Layout() {
           </div>
         )}
         <div className="flex items-center gap-3">
+          {user?.is_superuser && (
+            <button
+              type="button"
+              onClick={() => navigate('/admin')}
+              className="p-2 rounded-lg"
+              style={{ color: '#ff8a1f' }}
+              title="Administração"
+              aria-label="Administração"
+            >
+              <Shield size={18} />
+            </button>
+          )}
           <span className="text-sm font-medium" style={{ color: '#94a3b8' }}>
             {user?.first_name || user?.username}
           </span>

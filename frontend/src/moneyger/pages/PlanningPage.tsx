@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Trash2, CheckCircle2, Repeat, ShoppingBag, Zap } from 'lucide-react';
+import { Plus, Trash2, CheckCircle2, Repeat, ShoppingBag, Undo2, Zap } from 'lucide-react';
 import AddAccordion from '../components/AddAccordion';
 import { Chip, PageHeader, PageShell } from '../components/ui';
 import {
@@ -15,6 +15,7 @@ import {
   fetchRecurring,
   formatApiError,
   payInstallment,
+  undoInstallment,
 } from '../lib/moneygerApi';
 import { formatBRL, moneygerTheme as t } from '../theme';
 import { useAmountsHidden } from '../privacy';
@@ -47,7 +48,7 @@ export default function MoneygerPlanningPage() {
   const recurringQ = useQuery({ queryKey: ['moneyger', 'recurring'], queryFn: fetchRecurring });
   const installmentsQ = useQuery({
     queryKey: ['moneyger', 'installments'],
-    queryFn: () => fetchInstallments(true),
+    queryFn: () => fetchInstallments(),
   });
 
   const accounts = accountsQ.data ?? [];
@@ -151,6 +152,11 @@ export default function MoneygerPlanningPage() {
       payInstallment(id, { createTransaction }),
     onSuccess: invalidate,
     onError: (e) => alert(formatApiError(e, 'Erro ao registrar parcela.')),
+  });
+  const undoPlan = useMutation({
+    mutationFn: undoInstallment,
+    onSuccess: invalidate,
+    onError: (e) => alert(formatApiError(e, 'Não foi possível desfazer.')),
   });
 
   const canSubmit = Boolean(accountId && description.trim() && (amount || installmentAmount));
@@ -332,9 +338,9 @@ export default function MoneygerPlanningPage() {
       {tab === 'installments' && (
         <section className="space-y-2">
           <h2 className="text-sm font-bold text-white">Parcelamentos ativos</h2>
-          {(installmentsQ.data ?? []).length === 0 ? (
+          {(installmentsQ.data ?? []).filter((p) => p.is_active || p.can_undo).length === 0 ? (
             <p className="text-sm" style={{ color: t.muted }}>Nenhuma compra parcelada ativa.</p>
-          ) : (installmentsQ.data ?? []).map((p) => {
+          ) : (installmentsQ.data ?? []).filter((p) => p.is_active || p.can_undo).map((p) => {
             const pct = (p.paid_installments / p.total_installments) * 100;
             return (
               <div key={p.id} className="rounded-2xl p-3 space-y-2"
@@ -355,18 +361,30 @@ export default function MoneygerPlanningPage() {
                   <div className="h-full rounded-full" style={{ width: `${pct}%`, background: t.primary }} />
                 </div>
                 <div className="flex gap-2">
-                  <button type="button" disabled={payPlan.isPending}
-                    onClick={() => payPlan.mutate({ id: p.id, createTransaction: true })}
-                    className="flex-1 py-2 rounded-xl text-xs font-bold text-white flex items-center justify-center gap-1"
-                    style={{ background: t.gradient }}>
-                    <CheckCircle2 size={14} /> Pagar parcela
-                  </button>
-                  <button type="button" disabled={payPlan.isPending}
-                    onClick={() => payPlan.mutate({ id: p.id, createTransaction: false })}
-                    className="flex-1 py-2 rounded-xl text-xs font-bold"
-                    style={{ background: '#0f0f1a', color: t.primary, border: `1px solid ${t.border}` }}>
-                    Só marcar
-                  </button>
+                  {p.is_active && !p.is_completed && (
+                    <>
+                      <button type="button" disabled={payPlan.isPending}
+                        onClick={() => payPlan.mutate({ id: p.id, createTransaction: true })}
+                        className="flex-1 py-2 rounded-xl text-xs font-bold text-white flex items-center justify-center gap-1"
+                        style={{ background: t.gradient }}>
+                        <CheckCircle2 size={14} /> Pagar parcela
+                      </button>
+                      <button type="button" disabled={payPlan.isPending}
+                        onClick={() => payPlan.mutate({ id: p.id, createTransaction: false })}
+                        className="flex-1 py-2 rounded-xl text-xs font-bold"
+                        style={{ background: '#0f0f1a', color: t.primary, border: `1px solid ${t.border}` }}>
+                        Só marcar
+                      </button>
+                    </>
+                  )}
+                  {p.can_undo && (
+                    <button type="button" disabled={undoPlan.isPending}
+                      onClick={() => undoPlan.mutate(p.id)}
+                      className="flex-1 py-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1"
+                      style={{ background: '#0f0f1a', color: t.muted, border: `1px solid ${t.border}` }}>
+                      <Undo2 size={14} /> Desfazer
+                    </button>
+                  )}
                   <button type="button"
                     onClick={() => { if (confirm('Arquivar parcelamento?')) delPlan.mutate(p.id); }}
                     className="px-3 py-2 rounded-xl text-xs font-bold"

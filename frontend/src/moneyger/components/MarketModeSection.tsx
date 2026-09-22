@@ -24,6 +24,32 @@ import {
 import { formatBRL, moneygerTheme as t } from '../theme';
 import { useAmountsHidden } from '../privacy';
 
+function parseAmount(raw: string): number | null {
+  const value = Number(raw.trim().replace(',', '.'));
+  if (!raw.trim() || Number.isNaN(value) || value <= 0) return null;
+  return value;
+}
+
+function checkLineTotal(price: string, qty: string): number | null {
+  const unit = parseAmount(price);
+  const units = parseAmount(qty || '1');
+  if (unit == null || units == null) return null;
+  return Math.round(unit * units * 100) / 100;
+}
+
+function formatQty(raw: string): string {
+  const value = Number(raw);
+  if (Number.isNaN(value)) return raw;
+  return String(value);
+}
+
+function stepQty(current: string, delta: number): string {
+  const value = Number(current.trim().replace(',', '.'));
+  const base = Number.isNaN(value) || value <= 0 ? 1 : value;
+  const next = Math.max(1, Math.round((base + delta) * 1000) / 1000);
+  return String(next);
+}
+
 const STATUS_LABEL: Record<MarketList['status'], string> = {
   draft: 'Planejando',
   active: 'Em compra',
@@ -42,6 +68,7 @@ export default function MarketModeSection() {
   const [newItemName, setNewItemName] = useState('');
   const [checkingId, setCheckingId] = useState<number | null>(null);
   const [checkPrice, setCheckPrice] = useState('');
+  const [checkQty, setCheckQty] = useState('1');
   const [txAccountId, setTxAccountId] = useState<number | ''>('');
 
   const listsQ = useQuery({
@@ -138,11 +165,12 @@ export default function MarketModeSection() {
   });
 
   const checkItem = useMutation({
-    mutationFn: ({ listId, itemId, price }: { listId: number; itemId: number; price: string }) =>
-      checkMarketListItem(listId, itemId, price),
+    mutationFn: ({ listId, itemId, price, units }: { listId: number; itemId: number; price: string; units: string }) =>
+      checkMarketListItem(listId, itemId, price, units),
     onSuccess: () => {
       setCheckingId(null);
       setCheckPrice('');
+      setCheckQty('1');
       invalidate();
     },
     onError: (e) => alert(formatApiError(e, 'Erro ao baixar item.')),
@@ -258,6 +286,8 @@ export default function MarketModeSection() {
           setCheckingId={setCheckingId}
           checkPrice={checkPrice}
           setCheckPrice={setCheckPrice}
+          checkQty={checkQty}
+          setCheckQty={setCheckQty}
           onStart={() => start.mutate(selected.id)}
           onComplete={() => {
             if (confirm('Concluir esta compra?')) complete.mutate(selected.id);
@@ -277,7 +307,12 @@ export default function MarketModeSection() {
           }}
           onCheck={(item) => {
             if (!checkPrice.trim()) return;
-            checkItem.mutate({ listId: selected.id, itemId: item.id, price: checkPrice });
+            checkItem.mutate({
+              listId: selected.id,
+              itemId: item.id,
+              price: checkPrice,
+              units: checkQty.trim() || '1',
+            });
           }}
           onUncheck={(item) => uncheckItem.mutate({ listId: selected.id, itemId: item.id })}
           starting={start.isPending}
@@ -418,6 +453,8 @@ function MarketListPanel({
   setCheckingId,
   checkPrice,
   setCheckPrice,
+  checkQty,
+  setCheckQty,
   onStart,
   onComplete,
   onCancel,
@@ -438,6 +475,8 @@ function MarketListPanel({
   setCheckingId: (v: number | null) => void;
   checkPrice: string;
   setCheckPrice: (v: string) => void;
+  checkQty: string;
+  setCheckQty: (v: string) => void;
   onStart: () => void;
   onComplete: () => void;
   onCancel: () => void;
@@ -562,6 +601,7 @@ function MarketListPanel({
                       onClick={() => {
                         setCheckingId(checkingId === item.id ? null : item.id);
                         setCheckPrice('');
+                        setCheckQty('1');
                       }}
                       className="px-2.5 py-1.5 rounded-lg text-xs font-bold text-white"
                       style={{ background: t.gradient }}
@@ -581,27 +621,65 @@ function MarketListPanel({
                 </div>
               </div>
               {list.status === 'active' && checkingId === item.id && (
-                <div className="flex gap-2">
-                  <input
-                    value={checkPrice}
-                    onChange={(e) => setCheckPrice(e.target.value)}
-                    placeholder="Valor pago (ex.: 12,90)"
-                    autoFocus
-                    className="flex-1 px-3 py-2 rounded-xl text-sm text-white outline-none"
-                    style={inputStyle}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') onCheck(item);
-                    }}
-                  />
-                  <button
-                    type="button"
-                    disabled={!checkPrice.trim() || checking}
-                    onClick={() => onCheck(item)}
-                    className="px-3 py-2 rounded-xl font-bold text-white disabled:opacity-40"
-                    style={{ background: t.gradient }}
-                  >
-                    <Check size={16} />
-                  </button>
+                <div className="space-y-2">
+                  <div className="flex gap-2">
+                    <input
+                      value={checkPrice}
+                      onChange={(e) => setCheckPrice(e.target.value)}
+                      placeholder="Valor unitário"
+                      autoFocus
+                      className="flex-1 px-3 py-2 rounded-xl text-sm text-white outline-none"
+                      style={inputStyle}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') onCheck(item);
+                      }}
+                    />
+                    <div className="flex items-center rounded-xl shrink-0" style={inputStyle}>
+                      <button
+                        type="button"
+                        aria-label="Diminuir quantidade"
+                        disabled={Number(checkQty.replace(',', '.')) <= 1}
+                        onClick={() => setCheckQty(stepQty(checkQty, -1))}
+                        className="w-9 h-9 font-black text-lg disabled:opacity-30"
+                        style={{ color: t.primary }}
+                      >
+                        −
+                      </button>
+                      <input
+                        value={checkQty}
+                        onChange={(e) => setCheckQty(e.target.value)}
+                        inputMode="decimal"
+                        aria-label="Quantidade"
+                        className="w-8 bg-transparent text-center text-sm font-bold text-white outline-none"
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') onCheck(item);
+                        }}
+                      />
+                      <button
+                        type="button"
+                        aria-label="Aumentar quantidade"
+                        onClick={() => setCheckQty(stepQty(checkQty, 1))}
+                        className="w-9 h-9 font-black text-lg"
+                        style={{ color: t.primary }}
+                      >
+                        +
+                      </button>
+                    </div>
+                    <button
+                      type="button"
+                      disabled={!checkPrice.trim() || checking}
+                      onClick={() => onCheck(item)}
+                      className="px-3 py-2 rounded-xl font-bold text-white disabled:opacity-40"
+                      style={{ background: t.gradient }}
+                    >
+                      <Check size={16} />
+                    </button>
+                  </div>
+                  {checkLineTotal(checkPrice, checkQty) != null && (
+                    <p className="text-xs" style={{ color: t.muted }}>
+                      Total {formatBRL(checkLineTotal(checkPrice, checkQty) as number)}
+                    </p>
+                  )}
                 </div>
               )}
             </div>
@@ -623,7 +701,9 @@ function MarketListPanel({
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <span className="text-sm font-semibold" style={{ color: t.primary }}>
-                  {formatBRL(item.price)}
+                  {item.units && Number(item.units) !== 1 && item.unit_price
+                    ? `${formatQty(item.units)} × ${formatBRL(item.unit_price)} = ${formatBRL(item.price)}`
+                    : formatBRL(item.price)}
                 </span>
                 {list.status === 'active' && (
                   <button

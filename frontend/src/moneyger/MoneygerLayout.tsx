@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { NavLink, Outlet, Navigate, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, List, PlusCircle, CalendarRange, MoreHorizontal,
-  LogOut, ChevronDown, Wallet, Eye, EyeOff,
+  LogOut, ChevronDown, Wallet, Eye, EyeOff, Shield,
 } from 'lucide-react';
 import { useAuthStore } from '../store/authStore';
 import AppSwitcher from '../components/AppSwitcher';
@@ -61,6 +61,18 @@ export default function MoneygerLayout() {
           >
             {amountsHidden ? <EyeOff size={18} /> : <Eye size={18} />}
           </button>
+          {user?.is_superuser && (
+            <button
+              type="button"
+              onClick={() => navigate('/admin')}
+              className="p-2 rounded-lg"
+              style={{ color: t.primary }}
+              title="Administração"
+              aria-label="Administração"
+            >
+              <Shield size={18} />
+            </button>
+          )}
           <span className="text-sm font-medium max-w-[7rem] truncate" style={{ color: t.muted }}>
             {user?.first_name || user?.username}
           </span>

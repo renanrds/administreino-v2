@@ -59,6 +59,10 @@ def help_text() -> str:
         '• <code>ontem gastei 30 no café</code>\n'
         '• PIX, boleto, comprovante, foto ou PDF\n\n'
         'No preview você confirma, troca categoria, método, valor ou descarta.\n\n'
+        '<b>Lista de mercado</b>\n'
+        '• /mercado — começa a lista (eu peço o teto, depois os itens)\n'
+        '• um item por mensagem; Remover tira o último antes do próximo\n'
+        '• /pronto fecha; /cancelar desiste\n\n'
         '<b>Consultar</b> (botões ou comandos)\n'
         '• /saldo — contas, cartão e vales\n'
         '• /resumo — receitas e despesas do mês\n'
@@ -82,6 +86,9 @@ def nav_markup() -> dict:
             [
                 {'text': 'Inbox', 'callback_data': 'mg:nav:inbox'},
                 {'text': 'Ajuda', 'callback_data': 'mg:nav:help'},
+            ],
+            [
+                {'text': 'Mercado', 'callback_data': 'mg:mk:go'},
             ],
         ],
     }
@@ -419,4 +426,108 @@ def edit_invalid(field: str) -> str:
     if field == 'amount':
         return f'{_snip()} Valor inválido. Ex.: <code>137,07</code>.'
     return f'{_snip()} Não deu pra aplicar. Tenta de novo.'
+
+
+def market_ask_limit() -> str:
+    return (
+        f'{_snip()} Lista de mercado, é? Primeiro o teto.\n'
+        'Quanto você se permite gastar? Manda o número, tipo <code>180</code>.\n'
+        'Sem teto eu não anoto — dinheiro não é brincadeira.'
+    )
+
+
+def market_already_open() -> str:
+    return (
+        f'{_snip()} Já tem uma lista aberta. Manda o item, ou /pronto pra fechar. '
+        'Não começa outra no meio, que eu me perco.'
+    )
+
+
+def market_need_limit() -> str:
+    return (
+        f'{_snip()} Isso não é um teto. Manda só o valor, tipo <code>180</code> ou <code>180,50</code>.'
+    )
+
+
+def market_collect_items(limit) -> str:
+    return (
+        f'Teto de <b>R$ {format_money(limit)}</b>. Agora os itens, <b>um por mensagem</b>.\n'
+        'Cada um fica pendente: toca em Remover se errou. '
+        'Se mandar o próximo ou finalizar sem remover, eu deixo.\n'
+        'Quando acabar: /pronto. Desistir: /cancelar.\n'
+        'E não suma — cinco minutos calado e eu cobro.'
+    )
+
+
+def market_item_pending(name: str, saved_count: int) -> str:
+    extra = f' Já guardei {saved_count}.' if saved_count else ''
+    return (
+        f'{_snip()} <b>{name}</b> tá na ponta da língua.{extra}\n'
+        'Remover tira esse. Se vier outro item ou você finalizar, ele entra.'
+    )
+
+
+def market_item_removed(name: str) -> str:
+    return (
+        f'{_snip()} Tirei <b>{name}</b>. Menos um pra comprar. '
+        'Manda o próximo ou /pronto.'
+    )
+
+
+def market_nothing_to_remove() -> str:
+    return f'{_snip()} Não tem item pendente pra tirar. Manda o nome.'
+
+
+def market_finished(names: list[str], limit, *, auto: bool) -> str:
+    head = (
+        'Dez minutos de silêncio. Fechei a lista sozinho.'
+        if auto else
+        f'{_snip()} Fechei a lista.'
+    )
+    lines = [head, f'Teto: R$ {format_money(limit)}', f'{len(names)} item(ns):']
+    for name in names[:30]:
+        lines.append(f'• {name}')
+    if len(names) > 30:
+        lines.append(f'… e mais {len(names) - 30}')
+    lines.append('Tá no app, em Orçamentos → Mercado. Não estoura o teto, hein.')
+    if auto:
+        lines.append('Se faltou coisa, a culpa não é minha.')
+    return '\n'.join(lines)
+
+
+def market_empty_closed(*, auto: bool) -> str:
+    if auto:
+        return (
+            f'{_snip()} Dez minutos e a lista veio vazia. Joguei fora. '
+            'Quando for gastar de verdade, chama de novo.'
+        )
+    return f'{_snip()} Sem item nenhum eu não guardo lista. Cancelei. Menos desperdício.'
+
+
+def market_idle_nudge(*, has_limit: bool, saved_count: int) -> str:
+    if not has_limit:
+        return (
+            f'{_snip()} Faz cinco minutos e você nem o teto mandou. '
+            'Manda o valor ou /cancelar. Mais cinco e eu desisto.'
+        )
+    bit = f' Já anotei {saved_count}.' if saved_count else ' Ainda não entrou item.'
+    return (
+        f'{_snip()} Sumiu no corredor do mercado?{bit}\n'
+        'Manda o próximo item ou /pronto. Mais cinco minutos e eu fecho sozinho.'
+    )
+
+
+def market_abandoned_limit() -> str:
+    return (
+        f'{_snip()} Dez minutos e nem o teto chegou. Cancelei a lista. '
+        'Não vou ficar aqui de plantão.'
+    )
+
+
+def market_cancelled() -> str:
+    return f'{_snip()} Cancelei a lista. O que não foi fechado, não gasto.'
+
+
+def market_text_only() -> str:
+    return f'{_snip()} Na lista eu quero o nome do item, em texto. Foto não entra no carrinho.'
 

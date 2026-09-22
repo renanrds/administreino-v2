@@ -5,12 +5,12 @@ from .models import User, GymLocation
 @admin.register(User)
 class CustomUserAdmin(UserAdmin):
     list_display = ['email', 'username', 'first_name', 'last_name', 'wellhub_enabled', 'is_staff', 'created_at']
-    list_filter = ['is_staff', 'is_active', 'wellhub_enabled']
+    list_filter = ['is_staff', 'is_active', 'wellhub_enabled', 'moneyger_enabled']
     search_fields = ['email', 'username', 'first_name', 'last_name']
     ordering = ['-created_at']
     fieldsets = UserAdmin.fieldsets + (
         ('Perfil', {'fields': ('avatar', 'bio', 'weight', 'height')}),
-        ('Wellhub', {'fields': ('wellhub_enabled',)}),
+        ('Recursos', {'fields': ('wellhub_enabled', 'moneyger_enabled')}),
     )
 
 

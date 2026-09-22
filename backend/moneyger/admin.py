@@ -1,7 +1,7 @@
 from django.contrib import admin
 from .models import (
     Account, Category, Transaction, Budget, RecurringRule, InstallmentPlan,
-    InboxItem, TelegramLink, MarketList, MarketListItem,
+    InboxItem, TelegramLink, MarketList, MarketListItem, ActivityLog, BotMarketDraft,
 )
 
 
@@ -55,6 +55,17 @@ class TelegramLinkAdmin(admin.ModelAdmin):
 class MarketListItemInline(admin.TabularInline):
     model = MarketListItem
     extra = 0
+
+
+@admin.register(BotMarketDraft)
+class BotMarketDraftAdmin(admin.ModelAdmin):
+    list_display = ['user', 'phase', 'pending_name', 'last_activity_at', 'warned_at']
+
+
+@admin.register(ActivityLog)
+class ActivityLogAdmin(admin.ModelAdmin):
+    list_display = ['summary', 'user', 'action', 'created_at']
+    list_filter = ['action']
 
 
 @admin.register(MarketList)

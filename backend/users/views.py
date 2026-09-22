@@ -1,3 +1,4 @@
+from django.db.models import Q
 from rest_framework import generics, permissions, status, viewsets
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -10,6 +11,7 @@ from .serializers import (
     UserRegisterSerializer,
     UserProfileSerializer,
     GymLocationSerializer,
+    AdminUserSerializer,
 )
 
 User = get_user_model()
@@ -54,6 +56,36 @@ class AcceptTermsView(APIView):
             {'message': 'Termos aceitos com sucesso'},
             status=status.HTTP_200_OK
         )
+
+
+class IsSuperUser(permissions.BasePermission):
+    def has_permission(self, request, view):
+        user = request.user
+        return bool(user and user.is_authenticated and user.is_superuser)
+
+
+class AdminUserListView(generics.ListAPIView):
+    serializer_class = AdminUserSerializer
+    permission_classes = [IsSuperUser]
+
+    def get_queryset(self):
+        qs = User.objects.order_by('email')
+        q = (self.request.query_params.get('q') or '').strip()
+        if q:
+            qs = qs.filter(
+                Q(email__icontains=q)
+                | Q(username__icontains=q)
+                | Q(first_name__icontains=q)
+                | Q(last_name__icontains=q)
+            )
+        return qs
+
+
+class AdminUserDetailView(generics.UpdateAPIView):
+    serializer_class = AdminUserSerializer
+    permission_classes = [IsSuperUser]
+    queryset = User.objects.all()
+    http_method_names = ['patch', 'head', 'options']
 
 
 class GymLocationViewSet(viewsets.ModelViewSet):

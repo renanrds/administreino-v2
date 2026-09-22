@@ -43,6 +43,10 @@ class User(AbstractUser):
         default=GymAppPreference.NONE,
     )
     terms_accepted = models.BooleanField(default=False, help_text="Usuário aceitou os termos de isenção de responsabilidade")
+    moneyger_enabled = models.BooleanField(
+        default=False,
+        help_text="Libera o módulo Moneyger para este usuário.",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 

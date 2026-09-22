@@ -12,6 +12,7 @@ import ActiveSessionPage from './pages/ActiveSessionPage';
 import HistoryPage from './pages/HistoryPage';
 import SessionDetailPage from './pages/SessionDetailPage';
 import ProfilePage from './pages/ProfilePage';
+import AdminUsersPage from './pages/AdminUsersPage';
 import MoneygerLayout, { MoneygerRoute } from './moneyger/MoneygerLayout';
 import MoneygerDashboardPage from './moneyger/pages/DashboardPage';
 import MoneygerTransactionsPage from './moneyger/pages/TransactionsPage';
@@ -19,6 +20,7 @@ import MoneygerCapturePage from './moneyger/pages/CapturePage';
 import MoneygerBudgetsPage from './moneyger/pages/BudgetsPage';
 import MoneygerAccountsPage from './moneyger/pages/AccountsPage';
 import MoneygerMorePage from './moneyger/pages/MorePage';
+import MoneygerActivityPage from './moneyger/pages/ActivityPage';
 import MoneygerPlanningPage from './moneyger/pages/PlanningPage';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
@@ -29,6 +31,12 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
 function PublicRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
   return !isAuthenticated ? <>{children}</> : <Navigate to="/" replace />;
+}
+
+function SuperuserRoute({ children }: { children: React.ReactNode }) {
+  const user = useAuthStore((s) => s.user);
+  if (!user?.is_superuser) return <Navigate to="/" replace />;
+  return <>{children}</>;
 }
 
 export default function App() {
@@ -47,6 +55,7 @@ export default function App() {
           <Route path="history" element={<HistoryPage />} />
           <Route path="history/:id" element={<SessionDetailPage />} />
           <Route path="profile" element={<ProfilePage />} />
+          <Route path="admin" element={<SuperuserRoute><AdminUsersPage /></SuperuserRoute>} />
         </Route>
         <Route path="/session/:id" element={<PrivateRoute><ActiveSessionPage /></PrivateRoute>} />
         <Route path="/moneyger" element={<MoneygerRoute><MoneygerLayout /></MoneygerRoute>}>
@@ -57,6 +66,7 @@ export default function App() {
           <Route path="budgets" element={<MoneygerBudgetsPage />} />
           <Route path="accounts" element={<MoneygerAccountsPage />} />
           <Route path="more" element={<MoneygerMorePage />} />
+          <Route path="activity" element={<MoneygerActivityPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

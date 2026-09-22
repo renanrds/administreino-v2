@@ -12,6 +12,8 @@ def user_has_moneyger_access(user) -> bool:
         return False
     if getattr(user, 'is_superuser', False):
         return True
+    if getattr(user, 'moneyger_enabled', False):
+        return True
     username = (getattr(user, 'username', '') or '').strip().lower()
     return username in moneyger_allowed_usernames()
 

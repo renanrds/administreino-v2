@@ -337,6 +337,65 @@ def account_available(account) -> Decimal | None:
     return None
 
 
+def log_activity(*, user, action, summary, payload=None, installment_plan=None, transaction=None):
+    from .models import ActivityLog
+
+    return ActivityLog.objects.create(
+        user=user,
+        action=action,
+        summary=(summary or '')[:255],
+        payload=payload or {},
+        installment_plan=installment_plan,
+        transaction=transaction,
+    )
+
+
+def undo_installment_payment(*, user, plan):
+    """Desfaz o último pagar/marcar deste parcelamento e o lançamento, se houve."""
+    from django.db import transaction as db_transaction
+
+    from .models import ActivityAction, ActivityLog, Transaction
+
+    with db_transaction.atomic():
+        entry = (
+            ActivityLog.objects.select_for_update()
+            .filter(
+                user=user,
+                installment_plan=plan,
+                action__in=(ActivityAction.INSTALLMENT_PAY, ActivityAction.INSTALLMENT_MARK),
+                payload__undone=False,
+            )
+            .order_by('-created_at', '-id')
+            .first()
+        )
+        if entry is None:
+            raise ValueError('Nada para desfazer neste parcelamento.')
+        payload = dict(entry.payload or {})
+        tx_id = payload.get('transaction_id')
+        if tx_id:
+            Transaction.objects.filter(pk=tx_id, user=user).delete()
+        plan.paid_installments = int(payload['paid_before'])
+        plan.next_due_on = date.fromisoformat(payload['next_due_before'])
+        plan.is_active = bool(payload.get('was_active', True))
+        plan.save(update_fields=['paid_installments', 'next_due_on', 'is_active', 'updated_at'])
+        payload['undone'] = True
+        entry.payload = payload
+        entry.save(update_fields=['payload'])
+        kind = 'pagamento' if entry.action == ActivityAction.INSTALLMENT_PAY else 'marcação'
+        log_activity(
+            user=user,
+            action=ActivityAction.INSTALLMENT_UNDO,
+            summary=f'Desfez {kind} da parcela de {plan.description}',
+            payload={
+                'reverted_activity_id': entry.id,
+                'paid_after': plan.paid_installments,
+                'transaction_id': tx_id,
+            },
+            installment_plan=plan,
+        )
+    return plan
+
+
 def pay_credit_bill(*, user, credit_account, from_account, amount, occurred_on, description=''):
     """Paga fatura: transferência dinheiro → cartão (sem despesa duplicada no mês)."""
     from .models import (
