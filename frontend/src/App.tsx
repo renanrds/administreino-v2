@@ -12,6 +12,7 @@ import ActiveSessionPage from './pages/ActiveSessionPage';
 import HistoryPage from './pages/HistoryPage';
 import SessionDetailPage from './pages/SessionDetailPage';
 import ProfilePage from './pages/ProfilePage';
+import AdminUsersPage from './pages/AdminUsersPage';
 import MoneygerLayout, { MoneygerRoute } from './moneyger/MoneygerLayout';
 import MoneygerDashboardPage from './moneyger/pages/DashboardPage';
 import MoneygerTransactionsPage from './moneyger/pages/TransactionsPage';
@@ -32,6 +33,12 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
   return !isAuthenticated ? <>{children}</> : <Navigate to="/" replace />;
 }
 
+function SuperuserRoute({ children }: { children: React.ReactNode }) {
+  const user = useAuthStore((s) => s.user);
+  if (!user?.is_superuser) return <Navigate to="/" replace />;
+  return <>{children}</>;
+}
+
 export default function App() {
   return (
     <BrowserRouter>
@@ -48,6 +55,7 @@ export default function App() {
           <Route path="history" element={<HistoryPage />} />
           <Route path="history/:id" element={<SessionDetailPage />} />
           <Route path="profile" element={<ProfilePage />} />
+          <Route path="admin" element={<SuperuserRoute><AdminUsersPage /></SuperuserRoute>} />
         </Route>
         <Route path="/session/:id" element={<PrivateRoute><ActiveSessionPage /></PrivateRoute>} />
         <Route path="/moneyger" element={<MoneygerRoute><MoneygerLayout /></MoneygerRoute>}>

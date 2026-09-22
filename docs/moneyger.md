@@ -4,7 +4,7 @@ Módulo independente de finanças no monorepo Administreino.
 
 ## Acesso
 
-- Allowlist: env `MONEYGER_ALLOWED_USERNAMES` (default `renanrds`) **ou** `is_superuser`
+- Acesso: superusuário, campo `moneyger_enabled` ou allowlist `MONEYGER_ALLOWED_USERNAMES` (default `renanrds`). Superusuário gerencia em `/admin`.
 - Login/profile retornam `apps.moneyger` e `is_superuser`
 - UI: marca Administreino só é clicável (seletor) quando `apps.moneyger === true`
 - API: `/api/moneyger/*` exige `HasMoneygerAccess` (403 caso contrário)
@@ -75,8 +75,7 @@ API: `/api/moneyger/market-lists/` (+ `start`, `complete`, `cancel`, `to-transac
 # migrate
 docker compose exec backend python manage.py migrate moneyger
 
-# usuário allowlist
-# username = renanrds  OU  is_superuser=True
+# acesso: superusuário, moneyger_enabled ou username na allowlist (renanrds)
 ```
 
 Não commitar tokens do bot nem `.env.prod`.

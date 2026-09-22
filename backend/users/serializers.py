@@ -2,7 +2,7 @@ from rest_framework import serializers
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
 from django.contrib.auth import get_user_model
 from .models import GymLocation
-from .access import apps_payload_for_user
+from .access import apps_payload_for_user, user_has_moneyger_access
 
 User = get_user_model()
 
@@ -108,3 +108,31 @@ class UserProfileSerializer(serializers.ModelSerializer):
             'is_superuser', 'apps',
         ]
         read_only_fields = ['id', 'email', 'created_at', 'gym_locations', 'is_superuser', 'apps']
+
+
+class AdminUserSerializer(serializers.ModelSerializer):
+    moneyger = serializers.SerializerMethodField()
+
+    class Meta:
+        model = User
+        fields = [
+            'id', 'email', 'username', 'first_name', 'last_name',
+            'is_active', 'is_superuser', 'moneyger_enabled', 'moneyger',
+        ]
+        read_only_fields = [
+            'id', 'email', 'username', 'first_name', 'last_name', 'is_superuser', 'moneyger',
+        ]
+
+    def get_moneyger(self, obj):
+        return user_has_moneyger_access(obj)
+
+    def validate_is_active(self, value):
+        request = self.context.get('request')
+        if (
+            value is False
+            and self.instance is not None
+            and request is not None
+            and self.instance.pk == request.user.pk
+        ):
+            raise serializers.ValidationError('Você não pode desativar a própria conta.')
+        return value
