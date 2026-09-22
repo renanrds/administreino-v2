@@ -13,7 +13,7 @@ from django.http import FileResponse
 from .models import (
     Account, Category, Transaction, Budget, RecurringRule, InstallmentPlan, InboxItem,
     TransactionSource, TransactionStatus, InboxStatus, PaymentMethod,
-    MarketList, MarketListItem, MarketListStatus,
+    MarketList, MarketListItem, MarketListStatus, ActivityLog, ActivityAction,
 )
 from .permissions import HasMoneygerAccess
 from .serializers import (
@@ -21,12 +21,13 @@ from .serializers import (
     BudgetSerializer, RecurringRuleSerializer, InstallmentPlanSerializer,
     InboxItemSerializer, ParseCaptureSerializer, ConfirmInboxSerializer,
     MarketListSerializer, MarketListItemSerializer, MarketCheckItemSerializer,
-    MarketListToTransactionSerializer,
+    MarketListToTransactionSerializer, ActivityLogSerializer,
 )
 from .parsers import parse_capture
 from .services import (
     ensure_default_categories, account_balance, month_bounds,
     is_liability_account, pay_credit_bill, register_bill_expense,
+    log_activity, undo_installment_payment,
 )
 
 
@@ -130,6 +131,9 @@ class ResetDataView(MoneygerMixin, views.APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
         user = request.user
+        ActivityLog.objects.filter(user=user).delete()
+        from .models import BotMarketDraft
+        BotMarketDraft.objects.filter(user=user).delete()
         MarketList.objects.filter(user=user).delete()
         InboxItem.objects.filter(user=user).delete()
         Transaction.objects.filter(user=user).delete()
@@ -203,10 +207,29 @@ class TransactionDetailView(MoneygerMixin, generics.RetrieveUpdateDestroyAPIView
         category = serializer.validated_data.get('category', serializer.instance.category)
         if category is not None and category.user_id != self.request.user.id:
             raise PermissionDenied('Categoria inválida.')
-        account = serializer.validated_data.get('account', serializer.instance.account)
+        previous = serializer.instance.account
+        account = serializer.validated_data.get('account', previous)
         if account is not None and account.user_id != self.request.user.id:
             raise PermissionDenied('Conta inválida.')
+        description = serializer.instance.description
+        amount = serializer.instance.amount
         serializer.save()
+        if account is not None and account.id != previous.id:
+            label = description or 'Lançamento'
+            log_activity(
+                user=self.request.user,
+                action=ActivityAction.TRANSACTION_ACCOUNT,
+                summary=f'{label}: {previous.name} → {account.name}',
+                payload={
+                    'transaction_id': serializer.instance.id,
+                    'amount': str(amount),
+                    'from_account_id': previous.id,
+                    'from_account_name': previous.name,
+                    'to_account_id': account.id,
+                    'to_account_name': account.name,
+                },
+                transaction=serializer.instance,
+            )
 
 
 class BudgetListCreateView(MoneygerMixin, generics.ListCreateAPIView):
@@ -342,6 +365,9 @@ class InstallmentPayView(MoneygerMixin, views.APIView):
         if isinstance(occurred_on, str):
             occurred_on = date.fromisoformat(occurred_on)
 
+        paid_before = plan.paid_installments
+        due_before = plan.next_due_on
+        was_active = plan.is_active
         n = plan.paid_installments + 1
         tx = None
         if create_tx:
@@ -371,11 +397,69 @@ class InstallmentPayView(MoneygerMixin, views.APIView):
             d = min(d, monthrange(y, m)[1])
             plan.next_due_on = date(y, m, d)
         plan.save()
+        log_activity(
+            user=request.user,
+            action=ActivityAction.INSTALLMENT_PAY if create_tx else ActivityAction.INSTALLMENT_MARK,
+            summary=(
+                f'Pagou parcela {n}/{plan.total_installments} de {plan.description}'
+                if create_tx else
+                f'Marcou parcela {n}/{plan.total_installments} de {plan.description}'
+            ),
+            payload={
+                'paid_before': paid_before,
+                'paid_after': plan.paid_installments,
+                'next_due_before': due_before.isoformat(),
+                'next_due_after': plan.next_due_on.isoformat(),
+                'was_active': was_active,
+                'transaction_id': tx.id if tx else None,
+                'amount': str(plan.installment_amount),
+                'undone': False,
+            },
+            installment_plan=plan,
+            transaction=tx,
+        )
 
         return Response({
             'plan': InstallmentPlanSerializer(plan).data,
             'transaction': TransactionSerializer(tx).data if tx else None,
         })
+
+
+class InstallmentUndoView(MoneygerMixin, views.APIView):
+    """Desfaz o último pagar ou só marcar deste parcelamento."""
+
+    def post(self, request, pk):
+        plan = get_object_or_404(InstallmentPlan, pk=pk, user=request.user)
+        try:
+            plan = undo_installment_payment(user=request.user, plan=plan)
+        except ValueError as exc:
+            return Response({'detail': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({'plan': InstallmentPlanSerializer(plan).data})
+
+
+class ActivityListView(MoneygerMixin, views.APIView):
+    def get(self, request):
+        logs = list(
+            ActivityLog.objects.filter(user=request.user).order_by('-created_at', '-id')[:80]
+        )
+        plan_ids = {row.installment_plan_id for row in logs if row.installment_plan_id}
+        undoable_ids = set()
+        if plan_ids:
+            seen = set()
+            pending = ActivityLog.objects.filter(
+                user=request.user,
+                installment_plan_id__in=plan_ids,
+                action__in=(ActivityAction.INSTALLMENT_PAY, ActivityAction.INSTALLMENT_MARK),
+                payload__undone=False,
+            ).order_by('-created_at', '-id')
+            for row in pending:
+                if row.installment_plan_id in seen:
+                    continue
+                seen.add(row.installment_plan_id)
+                undoable_ids.add(row.id)
+        return Response(ActivityLogSerializer(
+            logs, many=True, context={'undoable_ids': undoable_ids},
+        ).data)
 
 
 class InboxListView(MoneygerMixin, generics.ListAPIView):
@@ -816,11 +900,14 @@ class MarketListItemCheckView(MoneygerMixin, views.APIView):
         item = get_object_or_404(MarketListItem, pk=item_id, market_list=market_list)
         ser = MarketCheckItemSerializer(data=request.data)
         ser.is_valid(raise_exception=True)
-        price = ser.validated_data['price']
+        unit_price = ser.validated_data['price']
+        units = ser.validated_data['units']
         item.is_checked = True
-        item.price = price
+        item.unit_price = unit_price
+        item.units = units
+        item.price = (unit_price * units).quantize(Decimal('0.01'))
         item.checked_at = timezone.now()
-        item.save(update_fields=['is_checked', 'price', 'checked_at', 'updated_at'])
+        item.save(update_fields=['is_checked', 'unit_price', 'units', 'price', 'checked_at', 'updated_at'])
         market_list.save(update_fields=['updated_at'])
         return Response({
             'item': MarketListItemSerializer(item).data,
@@ -834,9 +921,11 @@ class MarketListItemCheckView(MoneygerMixin, views.APIView):
             return Response({'error': 'Só em compra ativa.'}, status=400)
         item = get_object_or_404(MarketListItem, pk=item_id, market_list=market_list)
         item.is_checked = False
+        item.unit_price = None
+        item.units = Decimal('1')
         item.price = None
         item.checked_at = None
-        item.save(update_fields=['is_checked', 'price', 'checked_at', 'updated_at'])
+        item.save(update_fields=['is_checked', 'unit_price', 'units', 'price', 'checked_at', 'updated_at'])
         market_list.save(update_fields=['updated_at'])
         return Response({
             'item': MarketListItemSerializer(item).data,

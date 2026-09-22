@@ -490,6 +490,12 @@ class TelegramWebhookView(views.APIView):
             if header != secret:
                 return Response({'ok': False}, status=403)
 
+        try:
+            from .market_bot import sweep_market_drafts
+            sweep_market_drafts()
+        except Exception:
+            logger.exception('Falha ao varrer listas de mercado paradas')
+
         update = request.data if isinstance(request.data, dict) else {}
         callback = update.get('callback_query')
         if callback:
@@ -534,6 +540,12 @@ class TelegramWebhookView(views.APIView):
         user = link.user
         photos = message.get('photo') or []
         document = message.get('document')
+
+        from .market_bot import handle_market_incoming, handle_market_media
+        if handle_market_media(user, chat_id, bool(photos or document)):
+            return Response({'ok': True})
+        if text and handle_market_incoming(user, chat_id, text):
+            return Response({'ok': True})
 
         # Resposta a pedido de edição (vencimento/valor/descrição)
         awaiting_item = _find_awaiting_inbox(user)
@@ -741,6 +753,10 @@ class TelegramWebhookView(views.APIView):
         chat_id = str((callback.get('message') or {}).get('chat', {}).get('id') or '')
         link = TelegramLink.objects.filter(chat_id=chat_id).select_related('user').first()
         if not link or not user_has_moneyger_access(link.user):
+            return Response({'ok': True})
+
+        from .market_bot import handle_market_callback
+        if handle_market_callback(link.user, chat_id, data):
             return Response({'ok': True})
 
         if data.startswith('mg:nav:'):

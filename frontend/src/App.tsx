@@ -19,6 +19,7 @@ import MoneygerCapturePage from './moneyger/pages/CapturePage';
 import MoneygerBudgetsPage from './moneyger/pages/BudgetsPage';
 import MoneygerAccountsPage from './moneyger/pages/AccountsPage';
 import MoneygerMorePage from './moneyger/pages/MorePage';
+import MoneygerActivityPage from './moneyger/pages/ActivityPage';
 import MoneygerPlanningPage from './moneyger/pages/PlanningPage';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
@@ -57,6 +58,7 @@ export default function App() {
           <Route path="budgets" element={<MoneygerBudgetsPage />} />
           <Route path="accounts" element={<MoneygerAccountsPage />} />
           <Route path="more" element={<MoneygerMorePage />} />
+          <Route path="activity" element={<MoneygerActivityPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

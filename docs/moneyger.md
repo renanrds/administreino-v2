@@ -15,7 +15,7 @@ Listas de compras em Orçamentos (`/moneyger/budgets`):
 
 1. Criar lista com **limite** + itens
 2. **Iniciar compra** (uma lista ativa por vez)
-3. **Baixar** item informando o valor → soma em tempo real vs limite
+3. **Baixar** item informando o valor unitário e a quantidade → soma (valor × quantidade) em tempo real vs limite
 4. Adicionar itens a qualquer momento (planejando ou em compra)
 5. Concluir ou cancelar
 6. Lista **concluída** → `POST .../to-transaction/` com `account_id` (conta, cartão ou vale) gera despesa
@@ -31,7 +31,9 @@ API: `/api/moneyger/market-lists/` (+ `start`, `complete`, `cancel`, `to-transac
 
 ## Rotas app
 
-- `/moneyger`, `/moneyger/transactions`, `/moneyger/capture`, `/moneyger/planning`, `/moneyger/budgets`, `/moneyger/accounts`, `/moneyger/more`
+- `/moneyger`, `/moneyger/transactions`, `/moneyger/capture`, `/moneyger/planning`, `/moneyger/budgets`, `/moneyger/accounts`, `/moneyger/more`, `/moneyger/activity`
+- Histórico: `GET /api/moneyger/activity/` (pagar/marcar parcela, desfazer, troca de conta do lançamento)
+- Desfazer parcela: `POST /api/moneyger/installments/{id}/undo/` (último pagar ou só marcar; apaga o lançamento se ele existia)
 
 ## Telegram (Gastôncio)
 
@@ -46,6 +48,7 @@ API: `/api/moneyger/market-lists/` (+ `start`, `complete`, `cancel`, `to-transac
   - `/pendentes` — próximos vencimentos (`o que vence`)
   - `/orcamento` — orçamentos do mês
   - `/inbox` — itens aguardando confirmação
+  - `/mercado` — monta a lista de compras (teto, depois um item por mensagem; Remover tira o último; /pronto fecha). 5 min parado avisa; 10 min fecha sozinho.
 - **Captura por texto**:
   - Rápido: `45 mercado pix`
   - Natural: `gastei 45 no mercado`, `paguei 90 uber`, `recebi 2000 salário`, `ontem gastei 30 no café`

@@ -178,6 +178,7 @@ export async function updateTransaction(
     payment_method: string;
     status: string;
     notes: string;
+    account: number;
   }>,
 ): Promise<MoneyTransaction> {
   const { data } = await api.patch(`/moneyger/transactions/${id}/`, payload);
@@ -308,6 +309,7 @@ export type MoneyInstallment = {
   paid_installments: number;
   remaining_installments: number;
   is_completed: boolean;
+  can_undo?: boolean;
   start_on: string;
   next_due_on: string;
   payment_method: string;
@@ -349,6 +351,11 @@ export async function payInstallment(
   return data;
 }
 
+export async function undoInstallment(id: number): Promise<{ plan: MoneyInstallment }> {
+  const { data } = await api.post(`/moneyger/installments/${id}/undo/`);
+  return data;
+}
+
 export async function deleteInstallment(id: number): Promise<void> {
   await api.delete(`/moneyger/installments/${id}/`);
 }
@@ -374,10 +381,27 @@ export type MarketListItem = {
   name: string;
   quantity: string;
   is_checked: boolean;
+  unit_price?: string | null;
+  units?: string;
   price: string | null;
   sort_order: number;
   checked_at?: string | null;
 };
+
+export type MoneyActivity = {
+  id: number;
+  action: string;
+  summary: string;
+  created_at: string;
+  undoable: boolean;
+  installment_plan: number | null;
+  transaction: number | null;
+};
+
+export async function fetchActivity(): Promise<MoneyActivity[]> {
+  const { data } = await api.get('/moneyger/activity/');
+  return data;
+}
 
 export type MarketList = {
   id: number;
@@ -460,9 +484,12 @@ export async function checkMarketListItem(
   listId: number,
   itemId: number,
   price: string | number,
+  units: string | number = 1,
 ): Promise<{ item: MarketListItem; list: MarketList }> {
+  const parsedUnits = typeof units === 'string' ? units.replace(',', '.') : units;
   const { data } = await api.post(`/moneyger/market-lists/${listId}/items/${itemId}/check/`, {
     price: typeof price === 'string' ? price.replace(',', '.') : price,
+    units: parsedUnits === '' ? 1 : parsedUnits,
   });
   return data;
 }

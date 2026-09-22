@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { Wallet, ChevronRight, PieChart, ShoppingCart, PlusCircle, Tag, Trash2 } from 'lucide-react';
+import { Wallet, ChevronRight, PieChart, ShoppingCart, PlusCircle, Tag, Trash2, History } from 'lucide-react';
 import { PageHeader, PageShell } from '../components/ui';
 import { formatApiError, resetMoneygerData } from '../lib/moneygerApi';
 import { moneygerTheme as t } from '../theme';
@@ -24,6 +24,7 @@ export default function MoneygerMorePage() {
   });
 
   const links = [
+    { to: '/moneyger/activity', icon: History, title: 'Histórico', sub: 'Parcelas, desfazer e troca de conta' },
     { to: '/moneyger/capture', icon: PlusCircle, title: 'Capturar', sub: 'Texto, PIX, boleto ou comprovante' },
     { to: '/moneyger/budgets?aba=mercado', icon: ShoppingCart, title: 'Modo mercado', sub: 'Lista, baixa e lançamento' },
     { to: '/moneyger/budgets?aba=limites', icon: PieChart, title: 'Limites do mês', sub: 'Teto por categoria' },

@@ -4,6 +4,7 @@ from rest_framework import serializers
 from .models import (
     Account, Category, Transaction, Budget, RecurringRule, InstallmentPlan,
     InboxItem, TelegramLink, MarketList, MarketListItem, MarketListStatus,
+    ActivityLog,
 )
 
 
@@ -127,6 +128,7 @@ class InstallmentPlanSerializer(serializers.ModelSerializer):
     account_name = serializers.CharField(source='account.name', read_only=True)
     remaining_installments = serializers.IntegerField(read_only=True)
     is_completed = serializers.BooleanField(read_only=True)
+    can_undo = serializers.SerializerMethodField()
 
     class Meta:
         model = InstallmentPlan
@@ -134,12 +136,12 @@ class InstallmentPlanSerializer(serializers.ModelSerializer):
             'id', 'account', 'account_name', 'category', 'category_name',
             'description', 'notes', 'total_amount', 'installment_amount',
             'total_installments', 'paid_installments', 'remaining_installments',
-            'is_completed', 'start_on', 'next_due_on', 'payment_method',
+            'is_completed', 'can_undo', 'start_on', 'next_due_on', 'payment_method',
             'is_active', 'created_at', 'updated_at',
         ]
         read_only_fields = [
             'id', 'created_at', 'updated_at', 'account_name', 'category_name',
-            'remaining_installments', 'is_completed',
+            'remaining_installments', 'is_completed', 'can_undo',
         ]
         extra_kwargs = {
             'next_due_on': {'required': False},
@@ -156,6 +158,14 @@ class InstallmentPlanSerializer(serializers.ModelSerializer):
         if paid < 0:
             raise serializers.ValidationError({'paid_installments': 'Informe zero ou mais.'})
         return attrs
+
+    def get_can_undo(self, obj):
+        from .models import ActivityAction, ActivityLog
+        return ActivityLog.objects.filter(
+            installment_plan=obj,
+            action__in=(ActivityAction.INSTALLMENT_PAY, ActivityAction.INSTALLMENT_MARK),
+            payload__undone=False,
+        ).exists()
 
 
 class InboxItemSerializer(serializers.ModelSerializer):
@@ -231,11 +241,11 @@ class MarketListItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = MarketListItem
         fields = [
-            'id', 'name', 'quantity', 'is_checked', 'price',
+            'id', 'name', 'quantity', 'is_checked', 'unit_price', 'units', 'price',
             'sort_order', 'checked_at', 'created_at', 'updated_at',
         ]
         read_only_fields = [
-            'id', 'is_checked', 'price', 'checked_at', 'created_at', 'updated_at',
+            'id', 'is_checked', 'unit_price', 'units', 'price', 'checked_at', 'created_at', 'updated_at',
         ]
 
 
@@ -305,6 +315,24 @@ class MarketListSerializer(serializers.ModelSerializer):
 
 class MarketCheckItemSerializer(serializers.Serializer):
     price = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal('0.01'))
+    units = serializers.DecimalField(
+        max_digits=8, decimal_places=3, min_value=Decimal('0.001'), required=False, default=Decimal('1'),
+    )
+
+
+class ActivityLogSerializer(serializers.ModelSerializer):
+    undoable = serializers.SerializerMethodField()
+
+    class Meta:
+        model = ActivityLog
+        fields = [
+            'id', 'action', 'summary', 'created_at', 'undoable',
+            'installment_plan', 'transaction',
+        ]
+        read_only_fields = fields
+
+    def get_undoable(self, obj):
+        return obj.id in self.context.get('undoable_ids', set())
 
 
 class MarketListToTransactionSerializer(serializers.Serializer):

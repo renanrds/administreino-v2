@@ -155,6 +155,9 @@ def apply_payment_match(*, user, match: dict, occurred_on: date | None = None, r
 
     if kind == 'installment':
         plan = InstallmentPlan.objects.get(pk=obj_id, user=user, is_active=True)
+        paid_before = plan.paid_installments
+        due_before = plan.next_due_on
+        was_active = plan.is_active
         n = plan.paid_installments + 1
         pending = Transaction.objects.filter(
             user=user,
@@ -199,6 +202,25 @@ def apply_payment_match(*, user, match: dict, occurred_on: date | None = None, r
             d = min(d, monthrange(y, m)[1])
             plan.next_due_on = date(y, m, d)
         plan.save()
+        from .models import ActivityAction
+        from .services import log_activity
+        log_activity(
+            user=user,
+            action=ActivityAction.INSTALLMENT_PAY,
+            summary=f'Pagou parcela {n}/{plan.total_installments} de {plan.description}',
+            payload={
+                'paid_before': paid_before,
+                'paid_after': plan.paid_installments,
+                'next_due_before': due_before.isoformat(),
+                'next_due_after': plan.next_due_on.isoformat(),
+                'was_active': was_active,
+                'transaction_id': tx.id,
+                'amount': str(plan.installment_amount),
+                'undone': False,
+            },
+            installment_plan=plan,
+            transaction=tx,
+        )
         return {'ok': True, 'label': match['label'], 'amount': str(plan.installment_amount), 'transaction_id': tx.id}
 
     if kind == 'recurring':

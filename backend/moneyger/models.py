@@ -360,6 +360,8 @@ class MarketListItem(models.Model):
     name = models.CharField(max_length=200)
     quantity = models.CharField(max_length=40, blank=True, default='')
     is_checked = models.BooleanField(default=False)
+    unit_price = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    units = models.DecimalField(max_digits=8, decimal_places=3, default=1)
     price = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
     sort_order = models.PositiveIntegerField(default=0)
     checked_at = models.DateTimeField(null=True, blank=True)
@@ -368,6 +370,71 @@ class MarketListItem(models.Model):
 
     class Meta:
         ordering = ['sort_order', 'id']
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(units__gt=0),
+                name='moneyger_market_item_units_positive',
+            ),
+        ]
 
     def __str__(self):
         return self.name
+
+
+class BotMarketDraft(models.Model):
+    """Lista de mercado sendo montada no Telegram, um item por mensagem."""
+
+    class Phase(models.TextChoices):
+        LIMIT = 'limit', 'Aguardando teto'
+        ITEMS = 'items', 'Recebendo itens'
+
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='moneyger_market_draft',
+    )
+    chat_id = models.CharField(max_length=64)
+    market_list = models.ForeignKey(
+        MarketList, on_delete=models.SET_NULL, null=True, blank=True, related_name='bot_drafts',
+    )
+    phase = models.CharField(max_length=16, choices=Phase.choices, default=Phase.LIMIT)
+    pending_name = models.CharField(max_length=200, blank=True, default='')
+    last_activity_at = models.DateTimeField()
+    warned_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [models.Index(fields=['last_activity_at'])]
+
+    def __str__(self):
+        return f'{self.user_id} lista ({self.phase})'
+
+
+class ActivityAction(models.TextChoices):
+    INSTALLMENT_PAY = 'installment_pay', 'Pagou parcela'
+    INSTALLMENT_MARK = 'installment_mark', 'Marcou parcela'
+    INSTALLMENT_UNDO = 'installment_undo', 'Desfez parcela'
+    TRANSACTION_ACCOUNT = 'transaction_account', 'Alterou conta do lançamento'
+
+
+class ActivityLog(models.Model):
+    """Histórico de ações que mudam saldo, limite ou parcelamento."""
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL, on_delete=models.CASCADE, related_name='moneyger_activity',
+    )
+    action = models.CharField(max_length=32, choices=ActivityAction.choices)
+    summary = models.CharField(max_length=255)
+    payload = models.JSONField(default=dict, blank=True)
+    installment_plan = models.ForeignKey(
+        InstallmentPlan, on_delete=models.SET_NULL, null=True, blank=True, related_name='activity',
+    )
+    transaction = models.ForeignKey(
+        Transaction, on_delete=models.SET_NULL, null=True, blank=True, related_name='activity',
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['-created_at', '-id']
+        indexes = [models.Index(fields=['user', 'created_at'])]
+
+    def __str__(self):
+        return self.summary

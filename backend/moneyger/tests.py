@@ -1019,3 +1019,219 @@ class StatementAndResetTests(TestCase):
         self.assertEqual(ok.status_code, status.HTTP_200_OK)
         self.assertEqual(Account.objects.filter(user=self.user).count(), 0)
         self.assertEqual(TelegramLink.objects.filter(user=self.user).count(), 1)
+
+
+class ActivityUndoAndQuantityTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(username='renanrds', email='r@example.com', password='x')
+        self.client = APIClient()
+        self.client.force_authenticate(user=self.user)
+
+    def _card_and_plan(self):
+        card = self.client.post('/api/moneyger/accounts/', {
+            'name': 'Cartão', 'account_type': 'credit', 'limit_amount': '2000.00',
+        }, format='json').data
+        plan = self.client.post('/api/moneyger/installments/', {
+            'account': card['id'],
+            'description': 'Sofá',
+            'total_amount': '1000.00',
+            'installment_amount': '100.00',
+            'total_installments': 10,
+            'paid_installments': 0,
+            'start_on': '2026-01-10',
+            'payment_method': 'credit',
+        }, format='json')
+        self.assertEqual(plan.status_code, status.HTTP_201_CREATED, plan.data)
+        return card, plan.data
+
+    def test_undo_pay_removes_transaction_and_restores_limit(self):
+        card, plan = self._card_and_plan()
+        paid = self.client.post(f"/api/moneyger/installments/{plan['id']}/pay/", {
+            'create_transaction': True,
+        }, format='json')
+        self.assertEqual(paid.status_code, status.HTTP_200_OK)
+        self.assertEqual(Transaction.objects.filter(user=self.user).count(), 1)
+        mid = self.client.get(f"/api/moneyger/accounts/{card['id']}/").data
+        self.assertEqual(mid['balance'], '100.00')
+        self.assertEqual(mid['installment_commitment'], '900.00')
+        self.assertEqual(mid['available'], '1000.00')
+
+        undone = self.client.post(f"/api/moneyger/installments/{plan['id']}/undo/", {}, format='json')
+        self.assertEqual(undone.status_code, status.HTTP_200_OK)
+        self.assertEqual(undone.data['plan']['paid_installments'], 0)
+        self.assertEqual(undone.data['plan']['next_due_on'], '2026-01-10')
+        self.assertTrue(undone.data['plan']['is_active'])
+        self.assertEqual(Transaction.objects.filter(user=self.user).count(), 0)
+        after = self.client.get(f"/api/moneyger/accounts/{card['id']}/").data
+        self.assertEqual(after['balance'], '0.00')
+        self.assertEqual(after['installment_commitment'], '1000.00')
+        self.assertEqual(after['available'], '1000.00')
+
+        again = self.client.post(f"/api/moneyger/installments/{plan['id']}/undo/", {}, format='json')
+        self.assertEqual(again.status_code, status.HTTP_400_BAD_REQUEST)
+
+    def test_undo_mark_without_transaction(self):
+        _, plan = self._card_and_plan()
+        marked = self.client.post(f"/api/moneyger/installments/{plan['id']}/pay/", {
+            'create_transaction': False,
+        }, format='json')
+        self.assertEqual(marked.status_code, status.HTTP_200_OK)
+        undone = self.client.post(f"/api/moneyger/installments/{plan['id']}/undo/", {}, format='json')
+        self.assertEqual(undone.status_code, status.HTTP_200_OK)
+        self.assertEqual(undone.data['plan']['paid_installments'], 0)
+        self.assertEqual(Transaction.objects.filter(user=self.user).count(), 0)
+        history = self.client.get('/api/moneyger/activity/').data
+        summaries = [row['summary'] for row in history]
+        self.assertTrue(any(text.startswith('Marcou parcela') for text in summaries))
+        self.assertTrue(any(text.startswith('Desfez marcação') for text in summaries))
+        self.assertFalse(any(row['undoable'] for row in history))
+
+    def test_changing_transaction_account_moves_balance_and_logs(self):
+        origin = self.client.post('/api/moneyger/accounts/', {
+            'name': 'Origem', 'account_type': 'checking', 'initial_balance': '500.00',
+        }, format='json').data
+        dest = self.client.post('/api/moneyger/accounts/', {
+            'name': 'Destino', 'account_type': 'checking', 'initial_balance': '20.00',
+        }, format='json').data
+        tx = self.client.post('/api/moneyger/transactions/', {
+            'account': origin['id'],
+            'type': 'expense',
+            'amount': '40.00',
+            'occurred_on': '2026-09-22',
+            'description': 'Farmácia',
+            'payment_method': 'debit',
+        }, format='json')
+        self.assertEqual(tx.status_code, status.HTTP_201_CREATED, tx.data)
+        moved = self.client.patch(f"/api/moneyger/transactions/{tx.data['id']}/", {
+            'account': dest['id'],
+        }, format='json')
+        self.assertEqual(moved.status_code, status.HTTP_200_OK)
+        self.assertEqual(moved.data['account'], dest['id'])
+        origin_after = self.client.get(f"/api/moneyger/accounts/{origin['id']}/").data
+        dest_after = self.client.get(f"/api/moneyger/accounts/{dest['id']}/").data
+        self.assertEqual(origin_after['balance'], '500.00')
+        self.assertEqual(dest_after['balance'], '-20.00')
+        history = self.client.get('/api/moneyger/activity/').data
+        self.assertEqual(history[0]['action'], 'transaction_account')
+        self.assertIn('Origem → Destino', history[0]['summary'])
+
+    def test_market_check_multiplies_quantity(self):
+        created = self.client.post('/api/moneyger/market-lists/', {
+            'title': 'Feira',
+            'limit_amount': '50.00',
+            'items_input': [{'name': 'Banana'}],
+        }, format='json')
+        list_id = created.data['id']
+        self.client.post(f'/api/moneyger/market-lists/{list_id}/start/')
+        item_id = created.data['items'][0]['id']
+        check = self.client.post(
+            f'/api/moneyger/market-lists/{list_id}/items/{item_id}/check/',
+            {'price': '2.50', 'units': '4'},
+            format='json',
+        )
+        self.assertEqual(check.status_code, status.HTTP_200_OK, check.data)
+        self.assertEqual(check.data['item']['unit_price'], '2.50')
+        self.assertEqual(Decimal(check.data['item']['units']), Decimal('4'))
+        self.assertEqual(check.data['item']['price'], '10.00')
+        self.assertEqual(check.data['list']['spent_total'], '10.00')
+        self.assertEqual(check.data['list']['remaining'], '40.00')
+
+
+class BotMarketListTests(TestCase):
+    def setUp(self):
+        from moneyger.models import TelegramLink
+        self.user = User.objects.create_user(username='renanrds', email='r@example.com', password='x')
+        TelegramLink.objects.create(user=self.user, chat_id='4242')
+        self.client = APIClient()
+
+    def _update(self, payload):
+        from unittest.mock import patch
+        with patch('moneyger.telegram.telegram_webhook_secret', return_value=''), \
+                patch('moneyger.market_bot.sweep_market_drafts'), \
+                patch('moneyger.telegram.send_telegram_message') as send, \
+                patch('moneyger.market_bot._reply') as reply:
+            # _reply is what the feature uses; telegram.send is the transport.
+            response = self.client.post('/api/moneyger/telegram/webhook/', payload, format='json')
+        self.assertEqual(response.status_code, 200, response.content)
+        return reply, send
+
+    def _text(self, text):
+        return self._update({
+            'message': {'chat': {'id': 4242}, 'text': text, 'message_id': 1},
+        })
+
+    def _callback(self, data):
+        return self._update({
+            'callback_query': {'data': data, 'message': {'chat': {'id': 4242}}},
+        })
+
+    def test_items_stay_pending_until_next_or_finish_and_remove_drops_them(self):
+        from moneyger.models import BotMarketDraft, MarketList, MarketListItem, MarketListStatus
+
+        reply, _send = self._text('/mercado')
+        self.assertEqual(MarketList.objects.filter(user=self.user).count(), 0)
+        self.assertIn('teto', reply.call_args[0][1].lower())
+
+        reply, _send = self._text('180')
+        draft = BotMarketDraft.objects.get(user=self.user)
+        self.assertEqual(draft.phase, BotMarketDraft.Phase.ITEMS)
+        self.assertEqual(draft.market_list.limit_amount, Decimal('180.00'))
+        self.assertEqual(draft.market_list.items.count(), 0)
+
+        self._text('arroz')
+        draft.refresh_from_db()
+        self.assertEqual(draft.pending_name, 'arroz')
+        self.assertEqual(MarketListItem.objects.filter(market_list=draft.market_list).count(), 0)
+
+        self._text('feijão')
+        draft.refresh_from_db()
+        self.assertEqual(draft.pending_name, 'feijão')
+        self.assertEqual(
+            list(draft.market_list.items.values_list('name', flat=True)),
+            ['arroz'],
+        )
+
+        self._callback('mg:mk:rm')
+        draft.refresh_from_db()
+        self.assertEqual(draft.pending_name, '')
+        self.assertEqual(list(draft.market_list.items.values_list('name', flat=True)), ['arroz'])
+
+        self._text('leite')
+        reply, _send = self._text('/pronto')
+        self.assertFalse(BotMarketDraft.objects.filter(user=self.user).exists())
+        market_list = MarketList.objects.get(user=self.user)
+        self.assertEqual(market_list.status, MarketListStatus.DRAFT)
+        self.assertEqual(list(market_list.items.values_list('name', flat=True)), ['arroz', 'leite'])
+        self.assertIn('Fechei a lista', reply.call_args[0][1])
+
+    def test_idle_warns_at_five_and_finishes_at_ten(self):
+        from datetime import timedelta
+        from unittest.mock import patch
+        from django.utils import timezone
+        from moneyger.market_bot import sweep_market_drafts
+        from moneyger.models import BotMarketDraft, MarketList, MarketListStatus
+
+        self._text('/mercado 90')
+        self._text('banana')
+        draft = BotMarketDraft.objects.get(user=self.user)
+        draft.last_activity_at = timezone.now() - timedelta(minutes=6)
+        draft.save(update_fields=['last_activity_at'])
+
+        with patch('moneyger.market_bot._reply') as reply:
+            sweep_market_drafts()
+            sweep_market_drafts()
+        self.assertEqual(reply.call_count, 1)
+        self.assertIn('cinco minutos', reply.call_args[0][1].lower())
+        draft.refresh_from_db()
+        self.assertIsNotNone(draft.warned_at)
+        self.assertEqual(draft.pending_name, 'banana')
+
+        draft.last_activity_at = timezone.now() - timedelta(minutes=11)
+        draft.save(update_fields=['last_activity_at'])
+        with patch('moneyger.market_bot._reply') as reply:
+            sweep_market_drafts()
+        self.assertFalse(BotMarketDraft.objects.filter(user=self.user).exists())
+        market_list = MarketList.objects.get(user=self.user)
+        self.assertEqual(market_list.status, MarketListStatus.DRAFT)
+        self.assertEqual(list(market_list.items.values_list('name', flat=True)), ['banana'])
+        self.assertIn('sozinho', reply.call_args[0][1].lower())

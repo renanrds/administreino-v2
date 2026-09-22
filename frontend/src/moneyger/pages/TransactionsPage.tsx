@@ -5,6 +5,7 @@ import CategoryExhibitor from '../components/CategoryExhibitor';
 import { Chip, PageHeader, PageShell } from '../components/ui';
 import {
   deleteTransaction,
+  fetchAccounts,
   fetchCategories,
   fetchTransactions,
   formatApiError,
@@ -33,6 +34,7 @@ export default function MoneygerTransactionsPage() {
   const [typeFilter, setTypeFilter] = useState<'all' | 'expense' | 'income'>('all');
   const [editingId, setEditingId] = useState<number | null>(null);
   const [editCategoryId, setEditCategoryId] = useState<number | ''>('');
+  const [editAccountId, setEditAccountId] = useState<number | ''>('');
   const queryClient = useQueryClient();
 
   const { data = [], isLoading } = useQuery({
@@ -44,6 +46,10 @@ export default function MoneygerTransactionsPage() {
     queryKey: ['moneyger', 'categories'],
     queryFn: fetchCategories,
   });
+  const accountsQ = useQuery({
+    queryKey: ['moneyger', 'accounts'],
+    queryFn: fetchAccounts,
+  });
 
   const del = useMutation({
     mutationFn: deleteTransaction,
@@ -52,8 +58,8 @@ export default function MoneygerTransactionsPage() {
   });
 
   const updateCat = useMutation({
-    mutationFn: ({ id, category }: { id: number; category: number | null }) =>
-      updateTransaction(id, { category }),
+    mutationFn: ({ id, category, account }: { id: number; category: number | null; account?: number }) =>
+      updateTransaction(id, account ? { category, account } : { category }),
     onSuccess: () => {
       setEditingId(null);
       setEditCategoryId('');
@@ -82,6 +88,7 @@ export default function MoneygerTransactionsPage() {
   const startEdit = (tx: MoneyTransaction) => {
     setEditingId(tx.id);
     setEditCategoryId(tx.category ?? '');
+    setEditAccountId(tx.account);
   };
 
   const categoriesFor = (tx: MoneyTransaction) => {
@@ -141,7 +148,7 @@ export default function MoneygerTransactionsPage() {
                         onClick={() => startEdit(tx)}
                         className="p-2"
                         style={{ color: t.muted }}
-                        aria-label="Editar categoria"
+                        aria-label="Editar lançamento"
                       >
                         <Pencil size={16} />
                       </button>
@@ -163,12 +170,22 @@ export default function MoneygerTransactionsPage() {
                     <div className="space-y-2 pt-1" style={{ borderTop: `1px solid ${t.border}` }}>
                       <div className="flex items-center justify-between">
                         <p className="text-xs font-bold uppercase tracking-wider" style={{ color: t.muted }}>
-                          Categoria
+                          Conta e categoria
                         </p>
                         <button type="button" onClick={() => setEditingId(null)} style={{ color: t.muted }}>
                           <X size={16} />
                         </button>
                       </div>
+                      <select
+                        value={editAccountId}
+                        onChange={(e) => setEditAccountId(e.target.value ? Number(e.target.value) : '')}
+                        className="w-full px-3 py-2.5 rounded-xl text-sm text-white outline-none"
+                        style={{ background: '#0f0f1a', border: `1px solid ${t.border}` }}
+                      >
+                        {(accountsQ.data ?? []).map((acc) => (
+                          <option key={acc.id} value={acc.id}>{acc.name}</option>
+                        ))}
+                      </select>
                       <CategoryExhibitor
                         categories={categoriesFor(tx)}
                         selectedId={editCategoryId}
@@ -183,6 +200,7 @@ export default function MoneygerTransactionsPage() {
                           onClick={() => updateCat.mutate({
                             id: tx.id,
                             category: editCategoryId === '' ? null : Number(editCategoryId),
+                            account: editAccountId === '' ? undefined : Number(editAccountId),
                           })}
                           className="flex-1 py-2 rounded-xl font-bold text-white flex items-center justify-center gap-2 disabled:opacity-40"
                           style={{ background: t.gradient }}
@@ -194,7 +212,11 @@ export default function MoneygerTransactionsPage() {
                           disabled={updateCat.isPending || editCategoryId === ''}
                           onClick={() => {
                             setEditCategoryId('');
-                            updateCat.mutate({ id: tx.id, category: null });
+                            updateCat.mutate({
+                              id: tx.id,
+                              category: null,
+                              account: editAccountId === '' ? undefined : Number(editAccountId),
+                            });
                           }}
                           className="px-3 py-2 rounded-xl text-sm font-semibold disabled:opacity-40"
                           style={{ color: t.muted, border: `1px solid ${t.border}` }}
