@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2, CheckCircle2, Repeat, ShoppingBag, Undo2, Zap } from 'lucide-react';
 import AddAccordion from '../components/AddAccordion';
+import CategoryExhibitor from '../components/CategoryExhibitor';
+import { DonutChart } from '../components/charts';
 import { Chip, PageHeader, PageShell } from '../components/ui';
 import {
   createInstallment,
@@ -13,9 +15,15 @@ import {
   fetchCategories,
   fetchInstallments,
   fetchRecurring,
+  fetchTransactions,
   formatApiError,
   payInstallment,
   undoInstallment,
+  updateInstallment,
+  updateRecurring,
+  updateTransaction,
+  type MoneyCategory,
+  type MoneyInstallment,
 } from '../lib/moneygerApi';
 import { formatBRL, moneygerTheme as t } from '../theme';
 import { useAmountsHidden } from '../privacy';
@@ -37,6 +45,41 @@ function todayISO() {
   return new Date().toISOString().slice(0, 10);
 }
 
+function remainingMoney(plan: MoneyInstallment): number {
+  if (plan.remaining_amount != null) return Number(plan.remaining_amount);
+  const left = plan.remaining_installments
+    ?? Math.max(0, plan.total_installments - plan.paid_installments);
+  return left * Number(plan.installment_amount);
+}
+
+function CategoryField({
+  categories,
+  value,
+  onChange,
+}: {
+  categories: MoneyCategory[];
+  value: number | '' | null;
+  onChange: (id: number | null) => void;
+}) {
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-bold uppercase tracking-wider" style={{ color: t.muted }}>Categoria</p>
+        <button type="button" onClick={() => onChange(null)} className="text-xs font-semibold" style={{ color: t.muted }}>
+          Sem categoria
+        </button>
+      </div>
+      <CategoryExhibitor
+        categories={categories}
+        selectedId={value || ''}
+        onSelect={(id) => onChange(id)}
+        emptyLabel="Nenhuma categoria de despesa"
+        columns={4}
+      />
+    </div>
+  );
+}
+
 export default function MoneygerPlanningPage() {
   useAmountsHidden((s) => s.hidden);
   const [tab, setTab] = useState<Tab>('fixed');
@@ -49,6 +92,13 @@ export default function MoneygerPlanningPage() {
   const installmentsQ = useQuery({
     queryKey: ['moneyger', 'installments'],
     queryFn: () => fetchInstallments(),
+  });
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth() + 1;
+  const expensesQ = useQuery({
+    queryKey: ['moneyger', 'transactions', year, month, 'expense'],
+    queryFn: () => fetchTransactions({ year, month, type: 'expense' }),
   });
 
   const accounts = accountsQ.data ?? [];
@@ -158,6 +208,40 @@ export default function MoneygerPlanningPage() {
     onSuccess: invalidate,
     onError: (e) => alert(formatApiError(e, 'Não foi possível desfazer.')),
   });
+  const setFixedCategory = useMutation({
+    mutationFn: ({ id, category }: { id: number; category: number | null }) =>
+      updateRecurring(id, { category }),
+    onSuccess: invalidate,
+    onError: (e) => alert(formatApiError(e, 'Erro ao categorizar a fixa.')),
+  });
+  const setPlanCategory = useMutation({
+    mutationFn: ({ id, category }: { id: number; category: number | null }) =>
+      updateInstallment(id, { category }),
+    onSuccess: invalidate,
+    onError: (e) => alert(formatApiError(e, 'Erro ao categorizar o parcelamento.')),
+  });
+  const setExpenseCategory = useMutation({
+    mutationFn: ({ id, category }: { id: number; category: number | null }) =>
+      updateTransaction(id, { category }),
+    onSuccess: invalidate,
+    onError: (e) => alert(formatApiError(e, 'Erro ao categorizar a despesa.')),
+  });
+
+  const planSlices = useMemo(() => {
+    const fixedTotal = (recurringQ.data ?? [])
+      .filter((r) => r.is_active && r.type === 'expense' && r.nature === 'fixed')
+      .reduce((sum, r) => sum + Number(r.amount), 0);
+    const variableTotal = (expensesQ.data ?? [])
+      .reduce((sum, tx) => sum + Number(tx.amount), 0);
+    const installmentTotal = (installmentsQ.data ?? [])
+      .filter((p) => p.is_active)
+      .reduce((sum, p) => sum + Number(p.total_amount), 0);
+    return [
+      { label: 'Fixas', value: fixedTotal, color: '#6366f1' },
+      { label: 'Variáveis', value: variableTotal, color: '#f59e0b' },
+      { label: 'Parceladas', value: installmentTotal, color: t.primary },
+    ];
+  }, [recurringQ.data, expensesQ.data, installmentsQ.data]);
 
   const canSubmit = Boolean(accountId && description.trim() && (amount || installmentAmount));
 
@@ -180,6 +264,31 @@ export default function MoneygerPlanningPage() {
         title="Planejamento"
         subtitle="Fixas, variáveis e compras parceladas"
       />
+
+      <section className="rounded-2xl p-4 space-y-3" style={{ background: t.surface, border: `1px solid ${t.border}` }}>
+        <div>
+          <h2 className="text-sm font-bold text-white">Por tipo</h2>
+          <p className="text-xs mt-0.5" style={{ color: t.muted }}>
+            Fixas e parceladas somam o cadastro. Variáveis são as despesas deste mês.
+          </p>
+        </div>
+        <div className="flex flex-col sm:flex-row items-center gap-4">
+          <DonutChart
+            slices={planSlices}
+            centerSub="Total"
+            centerLabel={formatBRL(planSlices.reduce((sum, s) => sum + s.value, 0))}
+          />
+          <div className="flex-1 w-full space-y-2">
+            {planSlices.map((s) => (
+              <div key={s.label} className="flex items-center gap-2 text-xs">
+                <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ background: s.color }} />
+                <span className="flex-1" style={{ color: t.muted }}>{s.label}</span>
+                <span className="font-bold text-white">{formatBRL(s.value)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
 
       <div className="flex gap-2 overflow-x-auto pb-1">
         {tabs.map(({ id, label, icon: Icon }) => (
@@ -224,19 +333,16 @@ export default function MoneygerPlanningPage() {
           style={{ background: '#0f0f1a', border: `1px solid ${t.border}` }}
         />
 
-        <div className="grid grid-cols-2 gap-2">
-          <select value={accountId} onChange={(e) => setAccountId(e.target.value ? Number(e.target.value) : '')}
-            className="px-3 py-2.5 rounded-xl text-sm text-white outline-none"
-            style={{ background: '#0f0f1a', border: `1px solid ${t.border}` }}>
-            {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-          </select>
-          <select value={categoryId} onChange={(e) => setCategoryId(e.target.value ? Number(e.target.value) : '')}
-            className="px-3 py-2.5 rounded-xl text-sm text-white outline-none"
-            style={{ background: '#0f0f1a', border: `1px solid ${t.border}` }}>
-            <option value="">Categoria</option>
-            {expenseCats.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
-          </select>
-        </div>
+        <select value={accountId} onChange={(e) => setAccountId(e.target.value ? Number(e.target.value) : '')}
+          className="w-full px-3 py-2.5 rounded-xl text-sm text-white outline-none"
+          style={{ background: '#0f0f1a', border: `1px solid ${t.border}` }}>
+          {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+        </select>
+        <CategoryField
+          categories={expenseCats}
+          value={categoryId}
+          onChange={(id) => setCategoryId(id ?? '')}
+        />
 
         {tab === 'installments' ? (
           <>
@@ -315,6 +421,19 @@ export default function MoneygerPlanningPage() {
                   {r.category_name ? ` · ${r.category_name}` : ''}
                 </p>
               </div>
+              <select
+                value={r.category ?? ''}
+                onChange={(e) => setFixedCategory.mutate({
+                  id: r.id,
+                  category: e.target.value ? Number(e.target.value) : null,
+                })}
+                className="max-w-[8.5rem] px-2 py-1.5 rounded-lg text-xs text-white outline-none"
+                style={{ background: '#0f0f1a', border: `1px solid ${t.border}` }}
+                aria-label={`Categoria de ${r.description}`}
+              >
+                <option value="">Sem categoria</option>
+                {expenseCats.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
               <p className="font-bold whitespace-nowrap" style={{ color: t.expense }}>{formatBRL(r.amount)}</p>
               <button type="button" onClick={() => { if (confirm('Arquivar esta fixa?')) delFixed.mutate(r.id); }}
                 className="p-2" style={{ color: t.danger }}>
@@ -330,8 +449,32 @@ export default function MoneygerPlanningPage() {
           <p className="text-sm font-bold text-white">Despesas variáveis</p>
           <p className="text-xs leading-relaxed" style={{ color: t.muted }}>
             São gastos do dia a dia (mercado, transporte, lazer). Ao cadastrar acima, entram nos
-            <span className="text-white"> Lançamentos</span> do mês. Use também Capturar para PIX/boleto rápido.
+            <span className="text-white"> Lançamentos</span> do mês. Escolha a categoria de cada despesa.
           </p>
+          {(expensesQ.data ?? []).length === 0 ? (
+            <p className="text-sm" style={{ color: t.muted }}>Nenhuma despesa neste mês.</p>
+          ) : (expensesQ.data ?? []).map((tx) => (
+            <div key={tx.id} className="rounded-xl p-3 flex items-center gap-2" style={{ background: '#0f0f1a' }}>
+              <div className="flex-1 min-w-0">
+                <p className="font-semibold text-white truncate">{tx.description || 'Despesa'}</p>
+                <p className="text-xs" style={{ color: t.muted }}>{tx.occurred_on}</p>
+              </div>
+              <select
+                value={tx.category ?? ''}
+                onChange={(e) => setExpenseCategory.mutate({
+                  id: tx.id,
+                  category: e.target.value ? Number(e.target.value) : null,
+                })}
+                className="max-w-[8.5rem] px-2 py-1.5 rounded-lg text-xs text-white outline-none"
+                style={{ background: t.surface, border: `1px solid ${t.border}` }}
+                aria-label={`Categoria de ${tx.description || 'despesa'}`}
+              >
+                <option value="">Sem categoria</option>
+                {expenseCats.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+              <p className="font-bold whitespace-nowrap text-sm" style={{ color: t.expense }}>{formatBRL(tx.amount)}</p>
+            </div>
+          ))}
         </section>
       )}
 
@@ -353,6 +496,19 @@ export default function MoneygerPlanningPage() {
                       {p.category_name ? ` · ${p.category_name}` : ''}
                     </p>
                   </div>
+                  <select
+                    value={p.category ?? ''}
+                    onChange={(e) => setPlanCategory.mutate({
+                      id: p.id,
+                      category: e.target.value ? Number(e.target.value) : null,
+                    })}
+                    className="max-w-[8.5rem] px-2 py-1.5 rounded-lg text-xs text-white outline-none"
+                    style={{ background: '#0f0f1a', border: `1px solid ${t.border}` }}
+                    aria-label={`Categoria de ${p.description}`}
+                  >
+                    <option value="">Sem categoria</option>
+                    {expenseCats.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+                  </select>
                   <p className="font-bold text-sm whitespace-nowrap" style={{ color: t.expense }}>
                     {formatBRL(p.installment_amount)}
                   </p>
@@ -393,7 +549,7 @@ export default function MoneygerPlanningPage() {
                   </button>
                 </div>
                 <p className="text-[11px]" style={{ color: t.muted }}>
-                  Total {formatBRL(p.total_amount)} · restam {p.remaining_installments}
+                  Total {formatBRL(p.total_amount)} · restante {formatBRL(remainingMoney(p))} · restam {p.remaining_installments}
                 </p>
               </div>
             );

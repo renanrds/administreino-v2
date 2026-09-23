@@ -442,10 +442,12 @@ class MoneygerApiTests(TestCase):
         }, format='json')
         self.assertEqual(plan.status_code, status.HTTP_201_CREATED)
         self.assertEqual(plan.data['remaining_installments'], 12)
+        self.assertEqual(plan.data['remaining_amount'], '3600.00')
 
         pay = self.client.post(f"/api/moneyger/installments/{plan.data['id']}/pay/", {}, format='json')
         self.assertEqual(pay.status_code, status.HTTP_200_OK)
         self.assertEqual(pay.data['plan']['paid_installments'], 1)
+        self.assertEqual(pay.data['plan']['remaining_amount'], '3300.00')
         self.assertEqual(Transaction.objects.filter(user=self.user, description__startswith='Notebook').count(), 1)
 
     def test_credit_card_bill_does_not_drain_checking_until_paid(self):

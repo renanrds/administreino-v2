@@ -308,6 +308,7 @@ export type MoneyInstallment = {
   total_installments: number;
   paid_installments: number;
   remaining_installments: number;
+  remaining_amount?: string;
   is_completed: boolean;
   can_undo?: boolean;
   start_on: string;
@@ -330,9 +331,25 @@ export async function deleteRecurring(id: number): Promise<void> {
   await api.delete(`/moneyger/recurring/${id}/`);
 }
 
+export async function updateRecurring(
+  id: number,
+  payload: { category: number | null },
+): Promise<MoneyRecurring> {
+  const { data } = await api.patch(`/moneyger/recurring/${id}/`, payload);
+  return data;
+}
+
 export async function fetchInstallments(active?: boolean): Promise<MoneyInstallment[]> {
   const params = active === undefined ? {} : { active: active ? '1' : '0' };
   const { data } = await api.get('/moneyger/installments/', { params });
+  return data;
+}
+
+export async function updateInstallment(
+  id: number,
+  payload: { category: number | null },
+): Promise<MoneyInstallment> {
+  const { data } = await api.patch(`/moneyger/installments/${id}/`, payload);
   return data;
 }
 

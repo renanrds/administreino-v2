@@ -119,6 +119,8 @@ function CreditPlans({
             <p className="text-white truncate">{p.description}</p>
             <p className="text-xs" style={{ color: t.muted }}>
               {p.paid_installments}/{p.total_installments} · próxima {p.next_due_on}
+              {' · '}total {formatBRL(p.total_amount)}
+              {' · '}restante {formatBRL(p.remaining_amount ?? '0')}
             </p>
           </div>
           <p className="font-bold whitespace-nowrap" style={{ color: t.expense }}>{formatBRL(p.installment_amount)}</p>
