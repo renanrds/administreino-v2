@@ -127,6 +127,7 @@ class InstallmentPlanSerializer(serializers.ModelSerializer):
     category_name = serializers.CharField(source='category.name', read_only=True, default=None)
     account_name = serializers.CharField(source='account.name', read_only=True)
     remaining_installments = serializers.IntegerField(read_only=True)
+    remaining_amount = serializers.SerializerMethodField()
     is_completed = serializers.BooleanField(read_only=True)
     can_undo = serializers.SerializerMethodField()
 
@@ -136,12 +137,13 @@ class InstallmentPlanSerializer(serializers.ModelSerializer):
             'id', 'account', 'account_name', 'category', 'category_name',
             'description', 'notes', 'total_amount', 'installment_amount',
             'total_installments', 'paid_installments', 'remaining_installments',
-            'is_completed', 'can_undo', 'start_on', 'next_due_on', 'payment_method',
+            'remaining_amount', 'is_completed', 'can_undo', 'start_on', 'next_due_on',
+            'payment_method',
             'is_active', 'created_at', 'updated_at',
         ]
         read_only_fields = [
             'id', 'created_at', 'updated_at', 'account_name', 'category_name',
-            'remaining_installments', 'is_completed', 'can_undo',
+            'remaining_installments', 'remaining_amount', 'is_completed', 'can_undo',
         ]
         extra_kwargs = {
             'next_due_on': {'required': False},
@@ -158,6 +160,11 @@ class InstallmentPlanSerializer(serializers.ModelSerializer):
         if paid < 0:
             raise serializers.ValidationError({'paid_installments': 'Informe zero ou mais.'})
         return attrs
+
+    def get_remaining_amount(self, obj):
+        from decimal import Decimal
+        left = obj.remaining_installments
+        return str((Decimal(obj.installment_amount) * left).quantize(Decimal('0.01')))
 
     def get_can_undo(self, obj):
         from .models import ActivityAction, ActivityLog
