@@ -2,6 +2,8 @@
 
 PWA full stack para **treino e musculação**: montar fichas, executar a sessão com cronômetro de descanso e consultar o histórico.
 
+**App em produção:** [https://app.r-sistemas.online/](https://app.r-sistemas.online/)
+
 Cada pessoa cria a própria conta, organiza os treinos e registra o que foi feito. A interface é uma SPA instalável; a API fica atrás de autenticação JWT.
 
 ## Stack
@@ -50,11 +52,13 @@ Atalhos do [Makefile](Makefile):
 | `make createsuperuser` | Cria um administrador do Django |
 | `make shell-backend` | Abre o shell do Django |
 
-Depois de subir:
+Depois de subir (ambiente local):
 
 - App: http://localhost:5173
 - API: http://localhost:8000/api/
 - Swagger: http://localhost:8000/api/docs/
+
+Produção: [https://app.r-sistemas.online/](https://app.r-sistemas.online/)
 
 O serviço `tunnel` do Compose é opcional (túnel HTTPS). Use um token seu, só no ambiente local, e não o versione.
 
