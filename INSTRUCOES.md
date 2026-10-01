@@ -83,9 +83,11 @@ Para instalar no celular:
 
 ---
 
-## 6. CI/CD e produção (Debian Conexo)
+## 6. Produção
 
-Deploy de produção, runner self-hosted e checklist: ver **[docs/deploy.md](docs/deploy.md)**.
+O deploy é específico de cada ambiente. O roteiro genérico (CI, runner self-hosted, checklist) está em **[docs/deploy.md](docs/deploy.md)**.
+
+Domínio, caminhos no servidor, usuário de SSH e tokens ficam só no host de deploy (arquivo `.env.prod` e variáveis do GitHub). Não coloque esses dados neste repositório.
 
 ---
 
@@ -95,4 +97,4 @@ Módulo independente (tema verde), restrito a allowlist/`superuser`. Ver **[docs
 
 ---
 
-Desenvolvido com sucesso para o seu ambiente Debian 13! Bons treinos! 💪
+Bons treinos.
